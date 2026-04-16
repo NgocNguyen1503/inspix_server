@@ -19,8 +19,6 @@ return new class extends Migration {
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('collection_id');
             $table->text('download_url')->nullable();
-            $table->unsignedInteger('total_views')->default(0);
-            $table->unsignedInteger('total_likes')->default(0);
             $table->timestamps();
         });
     }
