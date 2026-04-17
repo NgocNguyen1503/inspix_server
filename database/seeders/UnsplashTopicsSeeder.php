@@ -31,16 +31,16 @@ class UnsplashTopicsSeeder extends Seeder
                 ->timeout(20)
                 ->acceptJson()
                 ->withHeaders([
-                    'Authorization' => 'Client-ID '.$accessKey,
+                    'Authorization' => 'Client-ID ' . $accessKey,
                 ])
-                ->get($apiUrl.'/topics', [
+                ->get($apiUrl . '/topics', [
                     'page' => $page,
                     'per_page' => $perPage,
                     'order_by' => 'featured',
                 ]);
 
             if ($response->failed()) {
-                throw new RuntimeException('Failed to fetch Unsplash topics at page '.$page.'. HTTP '.$response->status());
+                throw new RuntimeException('Failed to fetch Unsplash topics at page ' . $page . '. HTTP ' . $response->status());
             }
 
             $rows = $response->json();
@@ -78,6 +78,6 @@ class UnsplashTopicsSeeder extends Seeder
             DB::table('topics')->insert($chunk);
         }
 
-        $this->command?->info('Seeded '.count($payload).' topics from Unsplash API.');
+        $this->command?->info('Seeded ' . count($payload) . ' topics from Unsplash API.');
     }
 }

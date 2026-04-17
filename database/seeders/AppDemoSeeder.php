@@ -53,23 +53,24 @@ class AppDemoSeeder extends Seeder
         $now = now();
         $userRows = [];
         foreach ($profileNames as $index => $name) {
-            $avatarFileName = 'avatar-'.($index + 1).'.jpg';
-            $avatarRelativePath = '/uploads/avatars/'.$avatarFileName;
+            $avatarFileName = 'avatar-' . ($index + 1) . '.jpg';
+            $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
+            $avatarPublicUrl = $this->toPublicUrl($avatarRelativePath);
             $this->writeRealImage(
                 public_path(ltrim($avatarRelativePath, '/')),
                 300,
                 300,
-                'avatar-'.($index + 1)
+                'avatar-' . ($index + 1)
             );
 
             $userRows[] = [
                 'name' => $name,
-                'email' => 'user'.($index + 1).'@inspix.local',
+                'email' => 'user' . ($index + 1) . '@inspix.local',
                 'email_verified_at' => $now,
                 'password' => Hash::make('password'),
                 'remember_token' => Str::random(10),
                 'bio' => $bioPool[array_rand($bioPool)],
-                'avatar_url' => $avatarRelativePath,
+                'avatar_url' => $avatarPublicUrl,
                 'total_collections' => 0,
                 'total_likes' => 0,
                 'total_images' => 0,
@@ -145,23 +146,26 @@ class AppDemoSeeder extends Seeder
             $imagesPerCollection = random_int(1, 2);
             for ($i = 0; $i < $imagesPerCollection; $i++) {
                 $uuid = (string) Str::uuid();
-                $smallRelativePath = '/uploads/images/small/'.$uuid.'.jpg';
-                $regularRelativePath = '/uploads/images/regular/'.$uuid.'.jpg';
-                $fullRelativePath = '/uploads/images/full/'.$uuid.'.jpg';
+                $smallRelativePath = '/uploads/images/small/' . $uuid . '.jpg';
+                $regularRelativePath = '/uploads/images/regular/' . $uuid . '.jpg';
+                $fullRelativePath = '/uploads/images/full/' . $uuid . '.jpg';
+                $smallPublicUrl = $this->toPublicUrl($smallRelativePath);
+                $regularPublicUrl = $this->toPublicUrl($regularRelativePath);
+                $fullPublicUrl = $this->toPublicUrl($fullRelativePath);
 
-                $this->writeRealImage(public_path(ltrim($smallRelativePath, '/')), 480, 320, $uuid.'-small');
-                $this->writeRealImage(public_path(ltrim($regularRelativePath, '/')), 1080, 720, $uuid.'-regular');
-                $this->writeRealImage(public_path(ltrim($fullRelativePath, '/')), 1920, 1280, $uuid.'-full');
+                $this->writeRealImage(public_path(ltrim($smallRelativePath, '/')), 480, 320, $uuid . '-small');
+                $this->writeRealImage(public_path(ltrim($regularRelativePath, '/')), 1080, 720, $uuid . '-regular');
+                $this->writeRealImage(public_path(ltrim($fullRelativePath, '/')), 1920, 1280, $uuid . '-full');
 
                 $imageRows[] = [
                     'uuid' => $uuid,
                     'color' => $colorPool[array_rand($colorPool)],
-                    'url_small' => $smallRelativePath,
-                    'url_regular' => $regularRelativePath,
-                    'url_full' => $fullRelativePath,
+                    'url_small' => $smallPublicUrl,
+                    'url_regular' => $regularPublicUrl,
+                    'url_full' => $fullPublicUrl,
                     'user_id' => $collection->user_id,
                     'collection_id' => $collection->id,
-                    'download_url' => $fullRelativePath,
+                    'download_url' => $fullPublicUrl,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -179,7 +183,7 @@ class AppDemoSeeder extends Seeder
                 continue;
             }
 
-            $pairKey = $userId.'-'.$authorId;
+            $pairKey = $userId . '-' . $authorId;
             if (isset($followerPairs[$pairKey])) {
                 continue;
             }
@@ -207,7 +211,7 @@ class AppDemoSeeder extends Seeder
                 }
                 $pickedUsers[$userId] = true;
 
-                $pairKey = $userId.'-'.$collectionId;
+                $pairKey = $userId . '-' . $collectionId;
                 if (isset($likePairs[$pairKey])) {
                     continue;
                 }
@@ -317,24 +321,36 @@ class AppDemoSeeder extends Seeder
             ->keyBy('user_id');
 
         foreach ($userIds as $userId) {
-            $avatarFileName = 'avatar-'.$userId.'.jpg';
-            $avatarRelativePath = '/uploads/avatars/'.$avatarFileName;
+            $avatarFileName = 'avatar-' . $userId . '.jpg';
+            $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
+            $avatarPublicUrl = $this->toPublicUrl($avatarRelativePath);
             $this->writeRealImage(
                 public_path(ltrim($avatarRelativePath, '/')),
                 300,
                 300,
-                'avatar-user-'.$userId
+                'avatar-user-' . $userId
             );
 
             DB::table('users')->where('id', $userId)->update([
                 'bio' => $bioPool[array_rand($bioPool)],
-                'avatar_url' => $avatarRelativePath,
+                'avatar_url' => $avatarPublicUrl,
                 'total_collections' => (int) ($userCollectionCounts[$userId]->total_collections ?? 0),
                 'total_likes' => (int) ($userLikeCounts[$userId]->total_likes ?? 0),
                 'total_images' => (int) ($userImageCounts[$userId]->total_images ?? 0),
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    private function toPublicUrl(string $relativePath): string
+    {
+        if (Str::startsWith($relativePath, ['http://', 'https://'])) {
+            return $relativePath;
+        }
+
+        $baseUrl = rtrim((string) config('app.url', 'http://localhost'), '/');
+
+        return $baseUrl . '/' . ltrim($relativePath, '/');
     }
 
     private function prepareUploadDirectories(): void
