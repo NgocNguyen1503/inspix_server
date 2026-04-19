@@ -146,16 +146,17 @@ class AppDemoSeeder extends Seeder
             $imagesPerCollection = random_int(1, 2);
             for ($i = 0; $i < $imagesPerCollection; $i++) {
                 $uuid = (string) Str::uuid();
-                $smallRelativePath = '/uploads/images/small/' . $uuid . '.jpg';
-                $regularRelativePath = '/uploads/images/regular/' . $uuid . '.jpg';
-                $fullRelativePath = '/uploads/images/full/' . $uuid . '.jpg';
+                $stableImageKey = 'collection-' . $collection->id . '-image-' . ($i + 1);
+                $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
+                $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
+                $fullRelativePath = '/uploads/images/full/' . $stableImageKey . '.jpg';
                 $smallPublicUrl = $this->toPublicUrl($smallRelativePath);
                 $regularPublicUrl = $this->toPublicUrl($regularRelativePath);
                 $fullPublicUrl = $this->toPublicUrl($fullRelativePath);
 
-                $this->writeRealImage(public_path(ltrim($smallRelativePath, '/')), 480, 320, $uuid . '-small');
-                $this->writeRealImage(public_path(ltrim($regularRelativePath, '/')), 1080, 720, $uuid . '-regular');
-                $this->writeRealImage(public_path(ltrim($fullRelativePath, '/')), 1920, 1280, $uuid . '-full');
+                $this->writeRealImage(public_path(ltrim($smallRelativePath, '/')), 480, 320, $stableImageKey . '-small');
+                $this->writeRealImage(public_path(ltrim($regularRelativePath, '/')), 1080, 720, $stableImageKey . '-regular');
+                $this->writeRealImage(public_path(ltrim($fullRelativePath, '/')), 1920, 1280, $stableImageKey . '-full');
 
                 $imageRows[] = [
                     'uuid' => $uuid,
