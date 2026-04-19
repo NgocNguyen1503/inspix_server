@@ -19,6 +19,7 @@ class ImageController extends Controller
         $validator = Validator::make($request->all(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'offset' => ['sometimes', 'integer', 'min:0'],
+            'user_id' => ['sometimes', 'integer', 'min:1'],
         ]);
 
         if ($validator->fails()) {
@@ -28,20 +29,26 @@ class ImageController extends Controller
         $validated = $validator->validated();
         $limit = (int) ($validated['limit'] ?? 12);
         $offset = (int) ($validated['offset'] ?? 0);
-        $feed = $this->imageService->getCollectionFeed($limit, $offset);
+        $userId = $request->user()?->id;
+        if ($userId === null && isset($validated['user_id'])) {
+            $userId = (int) $validated['user_id'];
+        }
+
+        $feed = $this->imageService->getCollectionFeed($limit, $offset, $userId);
         $items = $feed['items'];
         $total = (int) $feed['total'];
 
-        return ApiResponse::success([
-            'items' => $items,
-            'meta' => [
+        return ApiResponse::success(
+            ['items' => $items],
+            'Collections fetched successfully.',
+            [
                 'limit' => $limit,
                 'offset' => $offset,
                 'count' => $items->count(),
                 'total' => $total,
                 'has_more' => ($offset + $items->count()) < $total,
-            ],
-        ], 'Collections fetched successfully.');
+            ]
+        );
     }
 
     public function show(string $uuid): JsonResponse

@@ -24,13 +24,19 @@ class ApiResponse
         ], 101);
     }
 
-    public static function success($data = null, string $message = 'Success.')
+    public static function success($data = null, string $message = 'Success.', $meta = null)
     {
-        return response()->json([
+        $payload = [
             'success' => true,
             'message' => $message,
             'data' => $data,
-        ], 200);
+        ];
+
+        if ($meta !== null) {
+            $payload['meta'] = $meta;
+        }
+
+        return response()->json($payload, 200);
     }
 
     public static function dataNotfound($errors = null, string $message = 'Data not found.')
