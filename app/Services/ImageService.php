@@ -32,8 +32,7 @@ class ImageService
                 't.id as topic_id',
                 't.name as topic_name',
             ])
-            ->orderByDesc('c.created_at')
-            ->orderByDesc('c.id')
+            ->inRandomOrder()
             ->offset($offset)
             ->limit($limit)
             ->get();
