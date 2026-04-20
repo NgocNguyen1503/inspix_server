@@ -157,6 +157,7 @@ class ImageService
                     'name' => $this->nullableString($row->topic_name),
                 ],
                 'created_at' => $this->nullableString($row->created_at),
+                'created_at_human' => $this->humanizeDateTime($row->created_at),
                 'updated_at' => $this->nullableString($row->updated_at),
                 'updated_at_human' => $this->humanizeDateTime($row->updated_at),
             ];
@@ -283,6 +284,7 @@ class ImageService
                     'name' => $this->extractUnsplashTopicName($photo),
                 ],
                 'created_at' => $createdAt,
+                'created_at_human' => $this->humanizeDateTime($createdAt),
                 'updated_at' => $updatedAt,
                 'updated_at_human' => $this->humanizeDateTime($updatedAt),
             ];
@@ -379,6 +381,7 @@ class ImageService
                 'c.description as collection_description',
                 'c.total_likes as collection_total_likes',
                 DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_id = c.id) as collection_total_comments'),
+                'c.created_at as collection_created_at',
                 'c.updated_at as collection_updated_at',
                 't.id as topic_id',
                 't.name as topic_name',
@@ -410,6 +413,8 @@ class ImageService
                 'description' => $this->nullableString($row->collection_description),
                 'total_likes' => $row->collection_total_likes !== null ? (int) $row->collection_total_likes : null,
                 'total_comments' => $row->collection_total_comments !== null ? (int) $row->collection_total_comments : null,
+                'created_at' => $this->nullableString($row->collection_created_at),
+                'created_at_human' => $this->humanizeDateTime($row->collection_created_at),
                 'updated_at' => $this->nullableString($row->collection_updated_at),
                 'updated_at_human' => $this->humanizeDateTime($row->collection_updated_at),
             ],
