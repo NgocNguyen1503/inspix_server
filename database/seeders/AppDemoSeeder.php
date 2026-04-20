@@ -16,7 +16,10 @@ class AppDemoSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->prepareUploadDirectories();
+        $writeLocalFiles = $this->shouldWriteLocalFiles();
+        if ($writeLocalFiles) {
+            $this->prepareUploadDirectories();
+        }
 
         DB::table('comments')->delete();
         DB::table('likes')->delete();
@@ -55,13 +58,8 @@ class AppDemoSeeder extends Seeder
         foreach ($profileNames as $index => $name) {
             $avatarFileName = 'avatar-' . ($index + 1) . '.jpg';
             $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
-            $avatarPublicUrl = $this->toPublicUrl($avatarRelativePath);
-            $this->writeRealImage(
-                public_path(ltrim($avatarRelativePath, '/')),
-                300,
-                300,
-                'avatar-' . ($index + 1)
-            );
+            $avatarSeed = 'avatar-' . ($index + 1);
+            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, $avatarSeed, $writeLocalFiles);
 
             $userRows[] = [
                 'name' => $name,
@@ -150,13 +148,9 @@ class AppDemoSeeder extends Seeder
                 $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
                 $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
                 $fullRelativePath = '/uploads/images/full/' . $stableImageKey . '.jpg';
-                $smallPublicUrl = $this->toPublicUrl($smallRelativePath);
-                $regularPublicUrl = $this->toPublicUrl($regularRelativePath);
-                $fullPublicUrl = $this->toPublicUrl($fullRelativePath);
-
-                $this->writeRealImage(public_path(ltrim($smallRelativePath, '/')), 480, 320, $stableImageKey . '-small');
-                $this->writeRealImage(public_path(ltrim($regularRelativePath, '/')), 1080, 720, $stableImageKey . '-regular');
-                $this->writeRealImage(public_path(ltrim($fullRelativePath, '/')), 1920, 1280, $stableImageKey . '-full');
+                $smallPublicUrl = $this->resolveDemoImageUrl($smallRelativePath, 480, 320, $stableImageKey . '-small', $writeLocalFiles);
+                $regularPublicUrl = $this->resolveDemoImageUrl($regularRelativePath, 1080, 720, $stableImageKey . '-regular', $writeLocalFiles);
+                $fullPublicUrl = $this->resolveDemoImageUrl($fullRelativePath, 1920, 1280, $stableImageKey . '-full', $writeLocalFiles);
 
                 $imageRows[] = [
                     'uuid' => $uuid,
@@ -324,13 +318,7 @@ class AppDemoSeeder extends Seeder
         foreach ($userIds as $userId) {
             $avatarFileName = 'avatar-' . $userId . '.jpg';
             $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
-            $avatarPublicUrl = $this->toPublicUrl($avatarRelativePath);
-            $this->writeRealImage(
-                public_path(ltrim($avatarRelativePath, '/')),
-                300,
-                300,
-                'avatar-user-' . $userId
-            );
+            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, 'avatar-user-' . $userId, $writeLocalFiles);
 
             DB::table('users')->where('id', $userId)->update([
                 'bio' => $bioPool[array_rand($bioPool)],
@@ -341,6 +329,26 @@ class AppDemoSeeder extends Seeder
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    private function shouldWriteLocalFiles(): bool
+    {
+        return filter_var((string) env('DEMO_SEED_WRITE_FILES', 'false'), FILTER_VALIDATE_BOOL);
+    }
+
+    private function resolveDemoImageUrl(string $relativePath, int $width, int $height, string $seed, bool $writeLocalFiles): string
+    {
+        if (!$writeLocalFiles) {
+            return $this->toPublicUrl($relativePath);
+        }
+
+        $this->writeRealImage(public_path(ltrim($relativePath, '/')), $width, $height, $seed);
+        return $this->toPublicUrl($relativePath);
+    }
+
+    private function toRemoteImageUrl(string $seed, int $width, int $height): string
+    {
+        return sprintf('https://picsum.photos/seed/%s/%d/%d.jpg', rawurlencode($seed), $width, $height);
     }
 
     private function toPublicUrl(string $relativePath): string
@@ -376,7 +384,7 @@ class AppDemoSeeder extends Seeder
             return;
         }
 
-        $url = sprintf('https://picsum.photos/seed/%s/%d/%d.jpg', rawurlencode($seed), $width, $height);
+        $url = $this->toRemoteImageUrl($seed, $width, $height);
 
         try {
             $response = Http::retry(2, 400)
