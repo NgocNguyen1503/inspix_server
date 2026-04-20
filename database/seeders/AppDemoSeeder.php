@@ -141,16 +141,35 @@ class AppDemoSeeder extends Seeder
 
         $imageRows = [];
         foreach ($collections as $collection) {
-            $imagesPerCollection = random_int(1, 2);
+            $imagesPerCollection = random_int(1, 8);
             for ($i = 0; $i < $imagesPerCollection; $i++) {
                 $uuid = (string) Str::uuid();
                 $stableImageKey = 'collection-' . $collection->id . '-image-' . ($i + 1);
+                $imageSizes = $this->getCollectionImageSizes($stableImageKey);
                 $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
                 $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
                 $fullRelativePath = '/uploads/images/full/' . $stableImageKey . '.jpg';
-                $smallPublicUrl = $this->resolveDemoImageUrl($smallRelativePath, 480, 320, $stableImageKey . '-small', $writeLocalFiles);
-                $regularPublicUrl = $this->resolveDemoImageUrl($regularRelativePath, 1080, 720, $stableImageKey . '-regular', $writeLocalFiles);
-                $fullPublicUrl = $this->resolveDemoImageUrl($fullRelativePath, 1920, 1280, $stableImageKey . '-full', $writeLocalFiles);
+                $smallPublicUrl = $this->resolveDemoImageUrl(
+                    $smallRelativePath,
+                    $imageSizes['small']['width'],
+                    $imageSizes['small']['height'],
+                    $stableImageKey . '-small',
+                    $writeLocalFiles
+                );
+                $regularPublicUrl = $this->resolveDemoImageUrl(
+                    $regularRelativePath,
+                    $imageSizes['regular']['width'],
+                    $imageSizes['regular']['height'],
+                    $stableImageKey . '-regular',
+                    $writeLocalFiles
+                );
+                $fullPublicUrl = $this->resolveDemoImageUrl(
+                    $fullRelativePath,
+                    $imageSizes['full']['width'],
+                    $imageSizes['full']['height'],
+                    $stableImageKey . '-full',
+                    $writeLocalFiles
+                );
 
                 $imageRows[] = [
                     'uuid' => $uuid,
@@ -329,6 +348,57 @@ class AppDemoSeeder extends Seeder
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    /**
+     * @return array{
+     *   small: array{width: int, height: int},
+     *   regular: array{width: int, height: int},
+     *   full: array{width: int, height: int}
+     * }
+     */
+    private function getCollectionImageSizes(string $seed): array
+    {
+        $variants = [
+            [
+                'small' => ['width' => 480, 'height' => 320],
+                'regular' => ['width' => 1080, 'height' => 720],
+                'full' => ['width' => 1920, 'height' => 1280],
+            ],
+            [
+                'small' => ['width' => 320, 'height' => 480],
+                'regular' => ['width' => 720, 'height' => 1080],
+                'full' => ['width' => 1280, 'height' => 1920],
+            ],
+            [
+                'small' => ['width' => 400, 'height' => 400],
+                'regular' => ['width' => 1000, 'height' => 1000],
+                'full' => ['width' => 1800, 'height' => 1800],
+            ],
+            [
+                'small' => ['width' => 512, 'height' => 288],
+                'regular' => ['width' => 1280, 'height' => 720],
+                'full' => ['width' => 1920, 'height' => 1080],
+            ],
+            [
+                'small' => ['width' => 288, 'height' => 512],
+                'regular' => ['width' => 720, 'height' => 1280],
+                'full' => ['width' => 1080, 'height' => 1920],
+            ],
+            [
+                'small' => ['width' => 384, 'height' => 480],
+                'regular' => ['width' => 864, 'height' => 1080],
+                'full' => ['width' => 1536, 'height' => 1920],
+            ],
+            [
+                'small' => ['width' => 500, 'height' => 400],
+                'regular' => ['width' => 1250, 'height' => 1000],
+                'full' => ['width' => 2000, 'height' => 1600],
+            ],
+        ];
+
+        $index = abs((int) crc32($seed)) % count($variants);
+        return $variants[$index];
     }
 
     private function shouldWriteLocalFiles(): bool
