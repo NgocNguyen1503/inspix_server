@@ -140,38 +140,53 @@ class AppDemoSeeder extends Seeder
 
         $collections = DB::table('collections')->select('uuid', 'user_uuid')->get();
         $collectionUuids = $collections->pluck('uuid')->all();
+        $existingImageNames = $this->getExistingImageBaseNames();
+        $existingImageCursor = 0;
 
         $imageRows = [];
         foreach ($collections as $collection) {
             $imagesPerCollection = random_int(1, 8);
             for ($i = 0; $i < $imagesPerCollection; $i++) {
                 $uuid = (string) Str::uuid();
-                $stableImageKey = 'collection-' . $collection->uuid . '-image-' . ($i + 1);
-                $imageSizes = $this->getCollectionImageSizes($stableImageKey);
-                $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
-                $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
-                $fullRelativePath = '/uploads/images/full/' . $stableImageKey . '.jpg';
-                $smallPublicUrl = $this->resolveDemoImageUrl(
-                    $smallRelativePath,
-                    $imageSizes['small']['width'],
-                    $imageSizes['small']['height'],
-                    $stableImageKey . '-small',
-                    $writeLocalFiles
-                );
-                $regularPublicUrl = $this->resolveDemoImageUrl(
-                    $regularRelativePath,
-                    $imageSizes['regular']['width'],
-                    $imageSizes['regular']['height'],
-                    $stableImageKey . '-regular',
-                    $writeLocalFiles
-                );
-                $fullPublicUrl = $this->resolveDemoImageUrl(
-                    $fullRelativePath,
-                    $imageSizes['full']['width'],
-                    $imageSizes['full']['height'],
-                    $stableImageKey . '-full',
-                    $writeLocalFiles
-                );
+                if (count($existingImageNames) > 0) {
+                    $pickedName = $existingImageNames[$existingImageCursor % count($existingImageNames)];
+                    $existingImageCursor++;
+
+                    $smallRelativePath = '/uploads/images/small/' . $pickedName;
+                    $regularRelativePath = '/uploads/images/regular/' . $pickedName;
+                    $fullRelativePath = '/uploads/images/full/' . $pickedName;
+
+                    $smallPublicUrl = $this->toPublicUrl($smallRelativePath);
+                    $regularPublicUrl = $this->toPublicUrl($regularRelativePath);
+                    $fullPublicUrl = $this->toPublicUrl($fullRelativePath);
+                } else {
+                    $stableImageKey = 'collection-' . $collection->uuid . '-image-' . ($i + 1);
+                    $imageSizes = $this->getCollectionImageSizes($stableImageKey);
+                    $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
+                    $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
+                    $fullRelativePath = '/uploads/images/full/' . $stableImageKey . '.jpg';
+                    $smallPublicUrl = $this->resolveDemoImageUrl(
+                        $smallRelativePath,
+                        $imageSizes['small']['width'],
+                        $imageSizes['small']['height'],
+                        $stableImageKey . '-small',
+                        $writeLocalFiles
+                    );
+                    $regularPublicUrl = $this->resolveDemoImageUrl(
+                        $regularRelativePath,
+                        $imageSizes['regular']['width'],
+                        $imageSizes['regular']['height'],
+                        $stableImageKey . '-regular',
+                        $writeLocalFiles
+                    );
+                    $fullPublicUrl = $this->resolveDemoImageUrl(
+                        $fullRelativePath,
+                        $imageSizes['full']['width'],
+                        $imageSizes['full']['height'],
+                        $stableImageKey . '-full',
+                        $writeLocalFiles
+                    );
+                }
 
                 $imageRows[] = [
                     'uuid' => $uuid,
@@ -350,6 +365,42 @@ class AppDemoSeeder extends Seeder
                 'updated_at' => now(),
             ]);
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function getExistingImageBaseNames(): array
+    {
+        $smallDir = public_path('uploads/images/small');
+        $regularDir = public_path('uploads/images/regular');
+        $fullDir = public_path('uploads/images/full');
+
+        if (!File::exists($smallDir) || !File::exists($regularDir) || !File::exists($fullDir)) {
+            return [];
+        }
+
+        $smallNames = collect(File::files($smallDir))
+            ->map(fn($file) => $file->getFilename())
+            ->values()
+            ->all();
+        $regularNames = collect(File::files($regularDir))
+            ->map(fn($file) => $file->getFilename())
+            ->values()
+            ->all();
+        $fullNames = collect(File::files($fullDir))
+            ->map(fn($file) => $file->getFilename())
+            ->values()
+            ->all();
+
+        if (count($smallNames) === 0 || count($regularNames) === 0 || count($fullNames) === 0) {
+            return [];
+        }
+
+        $intersected = array_values(array_intersect($smallNames, $regularNames, $fullNames));
+        sort($intersected);
+
+        return $intersected;
     }
 
     /**
