@@ -12,15 +12,15 @@ class ImageService
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
-    public function getCollectionFeed(int $limit = 12, int $offset = 0, ?int $userId = null): array
+    public function getCollectionFeed(int $limit = 12, int $offset = 0, ?string $userUuid = null): array
     {
-        $serverFeed = $this->getServerCollectionFeed($limit, $offset, $userId);
+        $serverFeed = $this->getServerCollectionFeed($limit, $offset, $userUuid);
         $serverItems = $serverFeed['items'];
         $serverTotal = (int) $serverFeed['total'];
 
         $remaining = max(0, $limit - $serverItems->count());
         $unsplashItems = $remaining > 0
-            ? $this->getUnsplashCollectionFeed($remaining, $userId)
+            ? $this->getUnsplashCollectionFeed($remaining, $userUuid)
             : collect();
 
         return [
@@ -32,44 +32,46 @@ class ImageService
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
-    private function getServerCollectionFeed(int $limit, int $offset, ?int $userId): array
+    private function getServerCollectionFeed(int $limit, int $offset, ?string $userUuid): array
     {
         $total = (int) DB::table('collections')->count();
 
-        $likedCollectionIds = $userId !== null
+        $likedCollectionUuids = $userUuid !== null
             ? DB::table('likes')
-                ->where('user_id', $userId)
-                ->pluck('collection_id')
-                ->map(fn($id) => (int) $id)
+                ->where('user_uuid', $userUuid)
+                ->pluck('collection_uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
                 ->unique()
                 ->values()
                 ->all()
             : [];
 
-        $followedAuthorIds = $userId !== null
+        $followedAuthorUuids = $userUuid !== null
             ? DB::table('followers')
-                ->where('user_id', $userId)
-                ->pluck('author_id')
-                ->map(fn($id) => (int) $id)
+                ->where('user_uuid', $userUuid)
+                ->pluck('author_uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
                 ->unique()
                 ->values()
                 ->all()
             : [];
 
-        $preferredTopicIds = $this->getPreferredTopicIds($userId, $likedCollectionIds);
+        $preferredTopicIds = $this->getPreferredTopicIds($userUuid, $likedCollectionUuids);
 
         $rowsQuery = DB::table('collections as c')
-            ->join('users as u', 'u.id', '=', 'c.user_id')
+            ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
             ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
             ->select([
-                'c.id',
+                'c.uuid',
                 'c.title',
                 'c.description',
                 'c.total_likes',
-                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_id = c.id) as total_comments'),
+                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_uuid = c.uuid) as total_comments'),
                 'c.created_at',
                 'c.updated_at',
-                'u.id as author_id',
+                'u.uuid as author_uuid',
                 'u.name as author_name',
                 'u.avatar_url as author_avatar_url',
                 'u.bio as author_bio',
@@ -77,7 +79,7 @@ class ImageService
                 't.name as topic_name',
             ]);
 
-        if ($userId === null) {
+        if ($userUuid === null) {
             $rowsQuery->inRandomOrder();
         } else {
             if (count($preferredTopicIds) > 0) {
@@ -85,9 +87,9 @@ class ImageService
                 $rowsQuery->orderByRaw("CASE WHEN c.topic_id IN ($topicPlaceholders) THEN 0 ELSE 1 END", $preferredTopicIds);
             }
 
-            if (count($likedCollectionIds) > 0) {
-                $likedIdList = implode(',', array_map('intval', $likedCollectionIds));
-                $rowsQuery->orderByRaw("CASE WHEN c.id IN ($likedIdList) THEN 0 ELSE 1 END");
+            if (count($likedCollectionUuids) > 0) {
+                $collectionPlaceholders = implode(',', array_fill(0, count($likedCollectionUuids), '?'));
+                $rowsQuery->orderByRaw("CASE WHEN c.uuid IN ($collectionPlaceholders) THEN 0 ELSE 1 END", $likedCollectionUuids);
             }
 
             $rowsQuery->inRandomOrder();
@@ -105,7 +107,7 @@ class ImageService
             ];
         }
 
-        $collectionIds = $rows->pluck('id')->map(fn($id) => (int) $id)->all();
+        $collectionUuids = $rows->pluck('uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->values()->all();
 
         $imagesByCollection = DB::table('images')
             ->select([
@@ -115,18 +117,18 @@ class ImageService
                 'url_regular',
                 'url_full',
                 'download_url',
-                'collection_id',
+                'collection_uuid',
             ])
-            ->whereIn('collection_id', $collectionIds)
+            ->whereIn('collection_uuid', $collectionUuids)
             ->orderBy('created_at')
             ->get()
-            ->groupBy('collection_id');
+            ->groupBy('collection_uuid');
 
-        $likedCollectionMap = collect($likedCollectionIds)->flip();
-        $followedAuthorMap = collect($followedAuthorIds)->flip();
+        $likedCollectionMap = collect($likedCollectionUuids)->flip();
+        $followedAuthorMap = collect($followedAuthorUuids)->flip();
 
-        $items = $rows->map(function (object $row) use ($imagesByCollection, $userId, $likedCollectionMap, $followedAuthorMap): array {
-            $collectionImages = $imagesByCollection->get($row->id, collect())->map(function (object $image): array {
+        $items = $rows->map(function (object $row) use ($imagesByCollection, $userUuid, $likedCollectionMap, $followedAuthorMap): array {
+            $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
                 return [
                     'uuid' => $this->nullableString($image->uuid),
                     'color' => $image->color,
@@ -138,19 +140,19 @@ class ImageService
             })->values();
 
             return [
-                'id' => (int) $row->id,
+                'uuid' => $this->nullableString($row->uuid),
                 'title' => $this->nullableString($row->title),
                 'description' => $this->nullableString($row->description),
                 'total_likes' => (int) $row->total_likes,
                 'total_comments' => (int) ($row->total_comments ?? 0),
-                'is_liked' => $userId !== null ? $likedCollectionMap->has((int) $row->id) : false,
+                'is_liked' => $userUuid !== null ? $likedCollectionMap->has((string) $row->uuid) : false,
                 'images' => $collectionImages,
                 'author' => [
-                    'id' => (int) $row->author_id,
+                    'uuid' => $this->nullableString($row->author_uuid),
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->nullableString($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
-                    'is_followed' => $userId !== null ? $followedAuthorMap->has((int) $row->author_id) : false,
+                    'is_followed' => $userUuid !== null ? $followedAuthorMap->has((string) $row->author_uuid) : false,
                 ],
                 'topic' => [
                     'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
@@ -170,17 +172,17 @@ class ImageService
     }
 
     /**
-     * @param list<int> $likedCollectionIds
+     * @param list<string> $likedCollectionUuids
      * @return list<int>
      */
-    private function getPreferredTopicIds(?int $userId, array $likedCollectionIds): array
+    private function getPreferredTopicIds(?string $userUuid, array $likedCollectionUuids): array
     {
-        if ($userId === null) {
+        if ($userUuid === null) {
             return [];
         }
 
         $storedTopicIds = DB::table('user_interested')
-            ->where('user_id', $userId)
+            ->where('user_uuid', $userUuid)
             ->orderByDesc('id')
             ->value('topic_ids');
 
@@ -190,9 +192,9 @@ class ImageService
             ->values()
             ->all();
 
-        $likedTopicIds = count($likedCollectionIds) > 0
+        $likedTopicIds = count($likedCollectionUuids) > 0
             ? DB::table('collections')
-                ->whereIn('id', $likedCollectionIds)
+            ->whereIn('uuid', $likedCollectionUuids)
                 ->pluck('topic_id')
                 ->map(fn($id) => (int) $id)
                 ->filter(fn($id) => $id > 0)
@@ -209,7 +211,7 @@ class ImageService
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function getUnsplashCollectionFeed(int $limit, ?int $userId): Collection
+    private function getUnsplashCollectionFeed(int $limit, ?string $userUuid): Collection
     {
         $accessKey = (string) config('services.unsplash.access_key');
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -222,7 +224,7 @@ class ImageService
             'count' => min($limit, 30),
         ];
 
-        $queryText = $this->buildUnsplashQueryFromUser($userId);
+        $queryText = $this->buildUnsplashQueryFromUser($userUuid);
         if ($queryText !== null) {
             $params['query'] = $queryText;
         }
@@ -255,7 +257,7 @@ class ImageService
             $updatedAt = $this->nullableString($photo['updated_at'] ?? null);
 
             return [
-                'id' => $rawId,
+                'uuid' => $rawId,
                 'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
                 'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
                 'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
@@ -273,7 +275,7 @@ class ImageService
                     ]
                 ],
                 'author' => [
-                    'id' => $this->nullableString($photo['user']['id'] ?? null),
+                    'uuid' => $this->nullableString($photo['user']['id'] ?? null),
                     'name' => $this->nullableString($photo['user']['name'] ?? null),
                     'avatar_url' => $this->nullableString($photo['user']['profile_image']['medium'] ?? null),
                     'bio' => $this->nullableString($photo['user']['bio'] ?? null),
@@ -311,20 +313,21 @@ class ImageService
         return Carbon::parse($dateTime)->diffForHumans();
     }
 
-    private function buildUnsplashQueryFromUser(?int $userId): ?string
+    private function buildUnsplashQueryFromUser(?string $userUuid): ?string
     {
-        if ($userId === null) {
+        if ($userUuid === null) {
             return null;
         }
 
-        $likedCollectionIds = DB::table('likes')
-            ->where('user_id', $userId)
-            ->pluck('collection_id')
-            ->map(fn($id) => (int) $id)
+        $likedCollectionUuids = DB::table('likes')
+            ->where('user_uuid', $userUuid)
+            ->pluck('collection_uuid')
+            ->map(fn($id) => $this->nullableString($id))
+            ->filter()
             ->values()
             ->all();
 
-        $topicIds = $this->getPreferredTopicIds($userId, $likedCollectionIds);
+        $topicIds = $this->getPreferredTopicIds($userUuid, $likedCollectionUuids);
         if (count($topicIds) === 0) {
             return null;
         }
@@ -360,8 +363,8 @@ class ImageService
     public function getImageDetailByUuid(string $uuid): ?array
     {
         $row = DB::table('images as i')
-            ->join('users as u', 'u.id', '=', 'i.user_id')
-            ->join('collections as c', 'c.id', '=', 'i.collection_id')
+            ->join('users as u', 'u.uuid', '=', 'i.user_uuid')
+            ->join('collections as c', 'c.uuid', '=', 'i.collection_uuid')
             ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
             ->select([
                 'i.uuid',
@@ -371,16 +374,16 @@ class ImageService
                 'i.url_full',
                 'i.download_url',
                 'i.created_at as image_created_at',
-                DB::raw('(SELECT COUNT(*) FROM likes l WHERE l.collection_id = i.collection_id) as image_total_likes'),
-                'u.id as author_id',
+                DB::raw('(SELECT COUNT(*) FROM likes l WHERE l.collection_uuid = i.collection_uuid) as image_total_likes'),
+                'u.uuid as author_uuid',
                 'u.name as author_name',
                 'u.avatar_url as author_avatar_url',
                 'u.bio as author_bio',
-                'c.id as collection_id',
+                'c.uuid as collection_uuid',
                 'c.title as collection_title',
                 'c.description as collection_description',
                 'c.total_likes as collection_total_likes',
-                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_id = c.id) as collection_total_comments'),
+                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_uuid = c.uuid) as collection_total_comments'),
                 'c.created_at as collection_created_at',
                 'c.updated_at as collection_updated_at',
                 't.id as topic_id',
@@ -402,13 +405,13 @@ class ImageService
             'url_full' => $this->nullableString($row->url_full),
             'download_url' => $this->nullableString($row->download_url ?? $row->url_full),
             'author' => [
-                'id' => (int) $row->author_id,
+                'uuid' => $this->nullableString($row->author_uuid),
                 'name' => $this->nullableString($row->author_name),
                 'avatar_url' => $this->nullableString($row->author_avatar_url),
                 'bio' => $this->nullableString($row->author_bio),
             ],
             'collection' => [
-                'id' => (int) $row->collection_id,
+                'uuid' => $this->nullableString($row->collection_uuid),
                 'title' => $this->nullableString($row->collection_title),
                 'description' => $this->nullableString($row->collection_description),
                 'total_likes' => $row->collection_total_likes !== null ? (int) $row->collection_total_likes : null,

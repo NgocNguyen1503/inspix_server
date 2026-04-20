@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -11,7 +12,13 @@ use Illuminate\Notifications\Notifiable;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, HasUuids;
+
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
+    protected $primaryKey = 'uuid';
 
     /**
      * @var list<string>
@@ -50,36 +57,36 @@ class User extends Authenticatable
 
     public function collections(): HasMany
     {
-        return $this->hasMany(Collection::class, 'user_id');
+        return $this->hasMany(Collection::class, 'user_uuid', 'uuid');
     }
 
     public function images(): HasMany
     {
-        return $this->hasMany(Image::class, 'user_id', 'id');
+        return $this->hasMany(Image::class, 'user_uuid', 'uuid');
     }
 
     public function comments(): HasMany
     {
-        return $this->hasMany(Comment::class, 'user_id');
+        return $this->hasMany(Comment::class, 'user_uuid', 'uuid');
     }
 
     public function likes(): HasMany
     {
-        return $this->hasMany(Like::class, 'user_id');
+        return $this->hasMany(Like::class, 'user_uuid', 'uuid');
     }
 
     public function interests(): HasMany
     {
-        return $this->hasMany(UserInterested::class, 'user_id');
+        return $this->hasMany(UserInterested::class, 'user_uuid', 'uuid');
     }
 
     public function followingAuthors(): HasMany
     {
-        return $this->hasMany(Follower::class, 'user_id');
+        return $this->hasMany(Follower::class, 'user_uuid', 'uuid');
     }
 
     public function followerUsers(): HasMany
     {
-        return $this->hasMany(Follower::class, 'author_id');
+        return $this->hasMany(Follower::class, 'author_uuid', 'uuid');
     }
 }

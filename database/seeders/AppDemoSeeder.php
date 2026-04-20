@@ -62,6 +62,7 @@ class AppDemoSeeder extends Seeder
             $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, $avatarSeed, $writeLocalFiles);
 
             $userRows[] = [
+                'uuid' => (string) Str::uuid(),
                 'name' => $name,
                 'email' => 'user' . ($index + 1) . '@inspix.local',
                 'email_verified_at' => $now,
@@ -78,10 +79,10 @@ class AppDemoSeeder extends Seeder
         }
         DB::table('users')->insert($userRows);
 
-        $users = DB::table('users')->select('id')->get();
-        $userIds = $users->pluck('id')->all();
+        $users = DB::table('users')->select('uuid')->get();
+        $userUuids = $users->pluck('uuid')->all();
 
-        if (count($userIds) === 0) {
+        if (count($userUuids) === 0) {
             return;
         }
 
@@ -120,11 +121,12 @@ class AppDemoSeeder extends Seeder
         $colorPool = ['#0F172A', '#1E293B', '#334155', '#475569', '#64748B', '#94A3B8'];
 
         $collectionRows = [];
-        foreach ($userIds as $userId) {
+        foreach ($userUuids as $userUuid) {
             $collectionsPerUser = random_int(1, 2);
             for ($i = 0; $i < $collectionsPerUser; $i++) {
                 $collectionRows[] = [
-                    'user_id' => $userId,
+                    'uuid' => (string) Str::uuid(),
+                    'user_uuid' => $userUuid,
                     'title' => $titlePool[array_rand($titlePool)],
                     'description' => $descriptionPool[array_rand($descriptionPool)],
                     'topic_id' => $topicIds[array_rand($topicIds)],
@@ -136,15 +138,15 @@ class AppDemoSeeder extends Seeder
         }
         DB::table('collections')->insert($collectionRows);
 
-        $collections = DB::table('collections')->select('id', 'user_id')->get();
-        $collectionIds = $collections->pluck('id')->all();
+        $collections = DB::table('collections')->select('uuid', 'user_uuid')->get();
+        $collectionUuids = $collections->pluck('uuid')->all();
 
         $imageRows = [];
         foreach ($collections as $collection) {
             $imagesPerCollection = random_int(1, 8);
             for ($i = 0; $i < $imagesPerCollection; $i++) {
                 $uuid = (string) Str::uuid();
-                $stableImageKey = 'collection-' . $collection->id . '-image-' . ($i + 1);
+                $stableImageKey = 'collection-' . $collection->uuid . '-image-' . ($i + 1);
                 $imageSizes = $this->getCollectionImageSizes($stableImageKey);
                 $smallRelativePath = '/uploads/images/small/' . $stableImageKey . '.jpg';
                 $regularRelativePath = '/uploads/images/regular/' . $stableImageKey . '.jpg';
@@ -177,8 +179,8 @@ class AppDemoSeeder extends Seeder
                     'url_small' => $smallPublicUrl,
                     'url_regular' => $regularPublicUrl,
                     'url_full' => $fullPublicUrl,
-                    'user_id' => $collection->user_id,
-                    'collection_id' => $collection->id,
+                    'user_uuid' => $collection->user_uuid,
+                    'collection_uuid' => $collection->uuid,
                     'download_url' => $fullPublicUrl,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -189,23 +191,23 @@ class AppDemoSeeder extends Seeder
 
         $followerRows = [];
         $followerPairs = [];
-        $targetFollowerCount = min(30, count($userIds) * 3);
+        $targetFollowerCount = min(30, count($userUuids) * 3);
         while (count($followerRows) < $targetFollowerCount) {
-            $userId = $userIds[array_rand($userIds)];
-            $authorId = $userIds[array_rand($userIds)];
-            if ($userId === $authorId) {
+            $userUuid = $userUuids[array_rand($userUuids)];
+            $authorUuid = $userUuids[array_rand($userUuids)];
+            if ($userUuid === $authorUuid) {
                 continue;
             }
 
-            $pairKey = $userId . '-' . $authorId;
+            $pairKey = $userUuid . '-' . $authorUuid;
             if (isset($followerPairs[$pairKey])) {
                 continue;
             }
 
             $followerPairs[$pairKey] = true;
             $followerRows[] = [
-                'user_id' => $userId,
-                'author_id' => $authorId,
+                'user_uuid' => $userUuid,
+                'author_uuid' => $authorUuid,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -214,26 +216,26 @@ class AppDemoSeeder extends Seeder
 
         $likeRows = [];
         $likePairs = [];
-        foreach ($collectionIds as $collectionId) {
-            $likesCount = random_int(0, min(5, count($userIds)));
+        foreach ($collectionUuids as $collectionUuid) {
+            $likesCount = random_int(0, min(5, count($userUuids)));
             $pickedUsers = [];
 
             for ($i = 0; $i < $likesCount; $i++) {
-                $userId = $userIds[array_rand($userIds)];
-                if (isset($pickedUsers[$userId])) {
+                $userUuid = $userUuids[array_rand($userUuids)];
+                if (isset($pickedUsers[$userUuid])) {
                     continue;
                 }
-                $pickedUsers[$userId] = true;
+                $pickedUsers[$userUuid] = true;
 
-                $pairKey = $userId . '-' . $collectionId;
+                $pairKey = $userUuid . '-' . $collectionUuid;
                 if (isset($likePairs[$pairKey])) {
                     continue;
                 }
 
                 $likePairs[$pairKey] = true;
                 $likeRows[] = [
-                    'user_id' => $userId,
-                    'collection_id' => $collectionId,
+                    'user_uuid' => $userUuid,
+                    'collection_uuid' => $collectionUuid,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -244,14 +246,14 @@ class AppDemoSeeder extends Seeder
         }
 
         $commentRows = [];
-        foreach ($collectionIds as $collectionId) {
+        foreach ($collectionUuids as $collectionUuid) {
             $baseCommentCount = random_int(1, 3);
             $createdCommentIds = [];
 
             for ($i = 0; $i < $baseCommentCount; $i++) {
                 $commentRows[] = [
-                    'user_id' => $userIds[array_rand($userIds)],
-                    'collection_id' => $collectionId,
+                    'user_uuid' => $userUuids[array_rand($userUuids)],
+                    'collection_uuid' => $collectionUuid,
                     'parent_id' => null,
                     'context' => $commentPool[array_rand($commentPool)],
                     'created_at' => $now,
@@ -263,7 +265,7 @@ class AppDemoSeeder extends Seeder
             $commentRows = [];
 
             $createdCommentIds = DB::table('comments')
-                ->where('collection_id', $collectionId)
+                ->where('collection_uuid', $collectionUuid)
                 ->whereNull('parent_id')
                 ->pluck('id')
                 ->all();
@@ -275,8 +277,8 @@ class AppDemoSeeder extends Seeder
                 }
 
                 $replyRows[] = [
-                    'user_id' => $userIds[array_rand($userIds)],
-                    'collection_id' => $collectionId,
+                    'user_uuid' => $userUuids[array_rand($userUuids)],
+                    'collection_uuid' => $collectionUuid,
                     'parent_id' => $commentId,
                     'context' => $commentPool[array_rand($commentPool)],
                     'created_at' => $now,
@@ -290,11 +292,11 @@ class AppDemoSeeder extends Seeder
         }
 
         $interestRows = [];
-        foreach ($userIds as $userId) {
+        foreach ($userUuids as $userUuid) {
             $take = random_int(2, min(6, count($topicIds)));
             $picked = collect($topicIds)->shuffle()->take($take)->values()->all();
             $interestRows[] = [
-                'user_id' => $userId,
+                'user_uuid' => $userUuid,
                 'topic_ids' => implode(',', $picked),
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -303,48 +305,48 @@ class AppDemoSeeder extends Seeder
         DB::table('user_interested')->insert($interestRows);
 
         $collectionLikes = DB::table('likes')
-            ->select('collection_id', DB::raw('COUNT(*) as likes_count'))
-            ->groupBy('collection_id')
+            ->select('collection_uuid', DB::raw('COUNT(*) as likes_count'))
+            ->groupBy('collection_uuid')
             ->get()
-            ->keyBy('collection_id');
+            ->keyBy('collection_uuid');
 
         foreach ($collections as $collection) {
-            $likesCount = (int) ($collectionLikes[$collection->id]->likes_count ?? 0);
-            DB::table('collections')->where('id', $collection->id)->update([
+            $likesCount = (int) ($collectionLikes[$collection->uuid]->likes_count ?? 0);
+            DB::table('collections')->where('uuid', $collection->uuid)->update([
                 'total_likes' => $likesCount,
                 'updated_at' => now(),
             ]);
         }
 
         $userCollectionCounts = DB::table('collections')
-            ->select('user_id', DB::raw('COUNT(*) as total_collections'))
-            ->groupBy('user_id')
+            ->select('user_uuid', DB::raw('COUNT(*) as total_collections'))
+            ->groupBy('user_uuid')
             ->get()
-            ->keyBy('user_id');
+            ->keyBy('user_uuid');
 
         $userImageCounts = DB::table('images')
-            ->select('user_id', DB::raw('COUNT(*) as total_images'))
-            ->groupBy('user_id')
+            ->select('user_uuid', DB::raw('COUNT(*) as total_images'))
+            ->groupBy('user_uuid')
             ->get()
-            ->keyBy('user_id');
+            ->keyBy('user_uuid');
 
         $userLikeCounts = DB::table('likes')
-            ->select('user_id', DB::raw('COUNT(*) as total_likes'))
-            ->groupBy('user_id')
+            ->select('user_uuid', DB::raw('COUNT(*) as total_likes'))
+            ->groupBy('user_uuid')
             ->get()
-            ->keyBy('user_id');
+            ->keyBy('user_uuid');
 
-        foreach ($userIds as $userId) {
-            $avatarFileName = 'avatar-' . $userId . '.jpg';
+        foreach ($userUuids as $userUuid) {
+            $avatarFileName = 'avatar-' . $userUuid . '.jpg';
             $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
-            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, 'avatar-user-' . $userId, $writeLocalFiles);
+            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, 'avatar-user-' . $userUuid, $writeLocalFiles);
 
-            DB::table('users')->where('id', $userId)->update([
+            DB::table('users')->where('uuid', $userUuid)->update([
                 'bio' => $bioPool[array_rand($bioPool)],
                 'avatar_url' => $avatarPublicUrl,
-                'total_collections' => (int) ($userCollectionCounts[$userId]->total_collections ?? 0),
-                'total_likes' => (int) ($userLikeCounts[$userId]->total_likes ?? 0),
-                'total_images' => (int) ($userImageCounts[$userId]->total_images ?? 0),
+                'total_collections' => (int) ($userCollectionCounts[$userUuid]->total_collections ?? 0),
+                'total_likes' => (int) ($userLikeCounts[$userUuid]->total_likes ?? 0),
+                'total_images' => (int) ($userImageCounts[$userUuid]->total_images ?? 0),
                 'updated_at' => now(),
             ]);
         }

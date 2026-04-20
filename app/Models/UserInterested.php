@@ -16,7 +16,7 @@ class UserInterested extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'user_id',
+        'user_uuid',
         'topic_ids',
     ];
 
@@ -24,11 +24,11 @@ class UserInterested extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'user_id' => 'integer',
+        'user_uuid' => 'string',
     ];
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_uuid', 'uuid');
     }
 }

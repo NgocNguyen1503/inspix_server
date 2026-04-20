@@ -25,8 +25,8 @@ class Image extends Model
         'url_small',
         'url_regular',
         'url_full',
-        'user_id',
-        'collection_id',
+        'user_uuid',
+        'collection_uuid',
         'download_url',
     ];
 
@@ -34,17 +34,17 @@ class Image extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'user_id' => 'integer',
-        'collection_id' => 'integer',
+        'user_uuid' => 'string',
+        'collection_uuid' => 'string',
     ];
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_uuid', 'uuid');
     }
 
     public function collection(): BelongsTo
     {
-        return $this->belongsTo(Collection::class, 'collection_id');
+        return $this->belongsTo(Collection::class, 'collection_uuid', 'uuid');
     }
 }

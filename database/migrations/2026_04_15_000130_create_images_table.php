@@ -16,8 +16,8 @@ return new class extends Migration {
             $table->text('url_small');
             $table->text('url_regular');
             $table->text('url_full');
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('collection_id');
+            $table->string('user_uuid', 255);
+            $table->string('collection_uuid', 255);
             $table->text('download_url')->nullable();
             $table->timestamps();
         });

@@ -12,7 +12,7 @@ return new class extends Migration {
     {
         Schema::create('user_interested', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('user_id');
+            $table->string('user_uuid', 255);
             $table->string('topic_ids', 255);
             $table->timestamps();
         });

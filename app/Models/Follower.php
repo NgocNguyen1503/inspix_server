@@ -16,25 +16,25 @@ class Follower extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'user_id',
-        'author_id',
+        'user_uuid',
+        'author_uuid',
     ];
 
     /**
      * @var array<string, string>
      */
     protected $casts = [
-        'user_id' => 'integer',
-        'author_id' => 'integer',
+        'user_uuid' => 'string',
+        'author_uuid' => 'string',
     ];
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_uuid', 'uuid');
     }
 
     public function author(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'author_id');
+        return $this->belongsTo(User::class, 'author_uuid', 'uuid');
     }
 }

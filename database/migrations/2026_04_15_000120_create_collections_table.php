@@ -11,8 +11,8 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('collections', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
+            $table->string('uuid', 255)->primary();
+            $table->string('user_uuid', 255);
             $table->string('title');
             $table->text('description');
             $table->unsignedInteger('topic_id');
