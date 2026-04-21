@@ -22,6 +22,8 @@ class Image extends Model
     protected $fillable = [
         'uuid',
         'color',
+        'width',
+        'height',
         'url_small',
         'url_regular',
         'url_full',
@@ -34,6 +36,8 @@ class Image extends Model
      * @var array<string, string>
      */
     protected $casts = [
+        'width' => 'integer',
+        'height' => 'integer',
         'user_uuid' => 'string',
         'collection_uuid' => 'string',
     ];

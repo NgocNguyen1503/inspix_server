@@ -58,8 +58,6 @@ class ImageService
                 ->all()
             : [];
 
-        $preferredTopicIds = $this->getPreferredTopicIds($userUuid, $likedCollectionUuids);
-
         $rowsQuery = DB::table('collections as c')
             ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
             ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
@@ -79,21 +77,9 @@ class ImageService
                 't.name as topic_name',
             ]);
 
-        if ($userUuid === null) {
-            $rowsQuery->inRandomOrder();
-        } else {
-            if (count($preferredTopicIds) > 0) {
-                $topicPlaceholders = implode(',', array_fill(0, count($preferredTopicIds), '?'));
-                $rowsQuery->orderByRaw("CASE WHEN c.topic_id IN ($topicPlaceholders) THEN 0 ELSE 1 END", $preferredTopicIds);
-            }
-
-            if (count($likedCollectionUuids) > 0) {
-                $collectionPlaceholders = implode(',', array_fill(0, count($likedCollectionUuids), '?'));
-                $rowsQuery->orderByRaw("CASE WHEN c.uuid IN ($collectionPlaceholders) THEN 0 ELSE 1 END", $likedCollectionUuids);
-            }
-
-            $rowsQuery->inRandomOrder();
-        }
+        $rowsQuery
+            ->orderByDesc('c.created_at')
+            ->orderByDesc('c.uuid');
 
         $rows = $rowsQuery
             ->offset($offset)
@@ -113,6 +99,8 @@ class ImageService
             ->select([
                 'uuid',
                 'color',
+                'width',
+                'height',
                 'url_small',
                 'url_regular',
                 'url_full',
@@ -132,6 +120,8 @@ class ImageService
                 return [
                     'uuid' => $this->nullableString($image->uuid),
                     'color' => $image->color,
+                    'width' => $image->width !== null ? (int) $image->width : null,
+                    'height' => $image->height !== null ? (int) $image->height : null,
                     'url_small' => $this->nullableString($image->url_small),
                     'url_regular' => $this->nullableString($image->url_regular),
                     'url_full' => $this->nullableString($image->url_full),
@@ -194,7 +184,7 @@ class ImageService
 
         $likedTopicIds = count($likedCollectionUuids) > 0
             ? DB::table('collections')
-            ->whereIn('uuid', $likedCollectionUuids)
+                ->whereIn('uuid', $likedCollectionUuids)
                 ->pluck('topic_id')
                 ->map(fn($id) => (int) $id)
                 ->filter(fn($id) => $id > 0)
@@ -267,6 +257,8 @@ class ImageService
                     [
                         'uuid' => $rawId,
                         'color' => $photo['color'] ?? null,
+                        'width' => isset($photo['width']) ? (int) $photo['width'] : null,
+                        'height' => isset($photo['height']) ? (int) $photo['height'] : null,
                         'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
                         'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
                         'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
@@ -369,6 +361,8 @@ class ImageService
             ->select([
                 'i.uuid',
                 'i.color',
+                'i.width',
+                'i.height',
                 'i.url_small',
                 'i.url_regular',
                 'i.url_full',
@@ -399,6 +393,8 @@ class ImageService
         return [
             'uuid' => $this->nullableString($row->uuid),
             'color' => $row->color,
+            'width' => $row->width !== null ? (int) $row->width : null,
+            'height' => $row->height !== null ? (int) $row->height : null,
             'total_likes' => (int) $row->image_total_likes,
             'url_small' => $this->nullableString($row->url_small),
             'url_regular' => $this->nullableString($row->url_regular),

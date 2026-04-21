@@ -159,6 +159,7 @@ class AppDemoSeeder extends Seeder
                     $smallPublicUrl = $this->toPublicUrl($smallRelativePath);
                     $regularPublicUrl = $this->toPublicUrl($regularRelativePath);
                     $fullPublicUrl = $this->toPublicUrl($fullRelativePath);
+                    $fullDimensions = $this->getImageDimensions(public_path(ltrim($fullRelativePath, '/')));
                 } else {
                     $stableImageKey = 'collection-' . $collection->uuid . '-image-' . ($i + 1);
                     $imageSizes = $this->getCollectionImageSizes($stableImageKey);
@@ -186,11 +187,19 @@ class AppDemoSeeder extends Seeder
                         $stableImageKey . '-full',
                         $writeLocalFiles
                     );
+
+                    $fullDimensions = $this->getImageDimensions(public_path(ltrim($fullRelativePath, '/')))
+                        ?? [
+                            'width' => $imageSizes['full']['width'],
+                            'height' => $imageSizes['full']['height'],
+                        ];
                 }
 
                 $imageRows[] = [
                     'uuid' => $uuid,
                     'color' => $colorPool[array_rand($colorPool)],
+                    'width' => $fullDimensions['width'] ?? null,
+                    'height' => $fullDimensions['height'] ?? null,
                     'url_small' => $smallPublicUrl,
                     'url_regular' => $regularPublicUrl,
                     'url_full' => $fullPublicUrl,
@@ -480,9 +489,7 @@ class AppDemoSeeder extends Seeder
             return $relativePath;
         }
 
-        $baseUrl = rtrim((string) config('app.url', 'http://localhost'), '/');
-
-        return $baseUrl . '/' . ltrim($relativePath, '/');
+        return '/' . ltrim($relativePath, '/');
     }
 
     private function prepareUploadDirectories(): void
@@ -526,5 +533,32 @@ class AppDemoSeeder extends Seeder
         // 1x1 transparent PNG fallback to avoid broken file paths.
         $pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZQ2kAAAAASUVORK5CYII=';
         File::put($absolutePath, base64_decode($pngBase64));
+    }
+
+    /**
+     * @return array{width: int, height: int}|null
+     */
+    private function getImageDimensions(string $absolutePath): ?array
+    {
+        if (!File::exists($absolutePath)) {
+            return null;
+        }
+
+        $size = @getimagesize($absolutePath);
+        if ($size === false) {
+            return null;
+        }
+
+        $width = isset($size[0]) ? (int) $size[0] : 0;
+        $height = isset($size[1]) ? (int) $size[1] : 0;
+
+        if ($width <= 0 || $height <= 0) {
+            return null;
+        }
+
+        return [
+            'width' => $width,
+            'height' => $height,
+        ];
     }
 }

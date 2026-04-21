@@ -13,6 +13,8 @@ return new class extends Migration {
         Schema::create('images', function (Blueprint $table) {
             $table->string('uuid', 255)->primary();
             $table->string('color', 50)->nullable();
+            $table->unsignedInteger('width')->nullable();
+            $table->unsignedInteger('height')->nullable();
             $table->text('url_small');
             $table->text('url_regular');
             $table->text('url_full');
