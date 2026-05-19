@@ -12,15 +12,15 @@ class ImageService
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
-    public function getCollectionFeed(int $limit = 12, int $offset = 0, ?string $userUuid = null): array
+    public function getCollectionFeed(int $limit = 12, int $offset = 0, ?string $userUuid = null, ?int $topicId = null): array
     {
-        $serverFeed = $this->getServerCollectionFeed($limit, $offset, $userUuid);
+        $serverFeed = $this->getServerCollectionFeed($limit, $offset, $userUuid, $topicId);
         $serverItems = $serverFeed['items'];
         $serverTotal = (int) $serverFeed['total'];
 
         $remaining = max(0, $limit - $serverItems->count());
         $unsplashItems = $remaining > 0
-            ? $this->getUnsplashCollectionFeed($remaining, $userUuid)
+            ? $this->getUnsplashCollectionFeed($remaining, $userUuid, $topicId)
             : collect();
 
         return [
@@ -32,9 +32,13 @@ class ImageService
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
-    private function getServerCollectionFeed(int $limit, int $offset, ?string $userUuid): array
+    private function getServerCollectionFeed(int $limit, int $offset, ?string $userUuid, ?int $topicId = null): array
     {
-        $total = (int) DB::table('collections')->count();
+        $totalQuery = DB::table('collections');
+        if ($topicId !== null) {
+            $totalQuery->where('topic_id', $topicId);
+        }
+        $total = (int) $totalQuery->count();
 
         $likedCollectionUuids = $userUuid !== null
             ? DB::table('likes')
@@ -76,6 +80,10 @@ class ImageService
                 't.id as topic_id',
                 't.name as topic_name',
             ]);
+
+        if ($topicId !== null) {
+            $rowsQuery->where('c.topic_id', $topicId);
+        }
 
         $rowsQuery
             ->orderByDesc('c.created_at')
@@ -201,7 +209,7 @@ class ImageService
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function getUnsplashCollectionFeed(int $limit, ?string $userUuid): Collection
+    private function getUnsplashCollectionFeed(int $limit, ?string $userUuid, ?int $topicId = null): Collection
     {
         $accessKey = (string) config('services.unsplash.access_key');
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -214,7 +222,13 @@ class ImageService
             'count' => min($limit, 30),
         ];
 
-        $queryText = $this->buildUnsplashQueryFromUser($userUuid);
+        if ($topicId !== null) {
+            $topicName = $this->nullableString(DB::table('topics')->where('id', $topicId)->value('name'));
+            $queryText = $topicName;
+        } else {
+            $queryText = $this->buildUnsplashQueryFromUser($userUuid);
+        }
+
         if ($queryText !== null) {
             $params['query'] = $queryText;
         }
@@ -236,7 +250,6 @@ class ImageService
             return collect();
         }
 
-        // Unsplash returns an object when count=1.
         if (isset($rows['id'])) {
             $rows = [$rows];
         }
@@ -262,7 +275,6 @@ class ImageService
                         'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
                         'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
                         'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
-                        // Unsplash guideline: use download_location to track downloads.
                         'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
                     ]
                 ],

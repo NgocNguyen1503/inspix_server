@@ -20,6 +20,7 @@ class ImageController extends Controller
             'limit' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'offset' => ['sometimes', 'integer', 'min:0'],
             'user_uuid' => ['sometimes', 'uuid'],
+            'topic_id' => ['sometimes', 'integer', 'min:1'],
         ]);
 
         if ($validator->fails()) {
@@ -29,12 +30,14 @@ class ImageController extends Controller
         $validated = $validator->validated();
         $limit = (int) ($validated['limit'] ?? 12);
         $offset = (int) ($validated['offset'] ?? 0);
+        $topicId = isset($validated['topic_id']) ? (int) $validated['topic_id'] : null;
+
         $userUuid = $request->user()?->getAuthIdentifier();
         if ($userUuid === null && isset($validated['user_uuid'])) {
             $userUuid = (string) $validated['user_uuid'];
         }
 
-        $feed = $this->imageService->getCollectionFeed($limit, $offset, $userUuid);
+        $feed = $this->imageService->getCollectionFeed($limit, $offset, $userUuid, $topicId);
         $items = $feed['items'];
         $total = (int) $feed['total'];
 
