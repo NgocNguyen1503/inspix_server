@@ -64,4 +64,29 @@ class ImageController extends Controller
 
         return ApiResponse::success($data, 'Image detail fetched successfully.');
     }
+
+    public function explore(Request $request, string $collectionUuid): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:30'],
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponse::unprocessableContent($validator->errors()->toArray(), 'Validation failed.');
+        }
+
+        $limit = (int) ($validator->validated()['limit'] ?? 12);
+
+        $items = $this->imageService->getExploreByCollection($collectionUuid, $limit);
+
+        if ($items === null) {
+            return ApiResponse::dataNotfound(['collection_uuid' => ['Collection not found.']], 'Collection not found.');
+        }
+
+        return ApiResponse::success(
+            ['items' => $items],
+            'Explore images fetched successfully.',
+            ['count' => $items->count()]
+        );
+    }
 }

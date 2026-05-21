@@ -8,4 +8,5 @@ Route::prefix('v1')->group(function (): void {
     Route::get('topics', [TopicController::class, 'topics']);
 
     Route::get('collections/random', [ImageController::class, 'random']);
+    Route::get('collections/explore/{collectionUuid}', [ImageController::class, 'explore']);
 });

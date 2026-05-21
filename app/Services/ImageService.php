@@ -297,6 +297,362 @@ class ImageService
         })->values();
     }
 
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>|null
+     */
+    public function getExploreByCollection(string $collectionUuid, int $limit = 12): ?Collection
+    {
+        $collection = DB::table('collections')
+            ->where('uuid', $collectionUuid)
+            ->first();
+
+        if ($collection === null) {
+            return null;
+        }
+
+        $topicId = $collection->topic_id !== null ? (int) $collection->topic_id : null;
+
+        $sourceImages = DB::table('images')
+            ->select(['uuid', 'color'])
+            ->where('collection_uuid', $collectionUuid)
+            ->get();
+
+        if ($sourceImages->isEmpty()) {
+            return collect();
+        }
+
+        $perImage = (int) ceil($limit / $sourceImages->count());
+        $collected = collect();
+
+        foreach ($sourceImages as $image) {
+            $sourceColor = $this->nullableString($image->color);
+
+            $dbItems = $this->getExploreFromDb((string) $image->uuid, $collectionUuid, $topicId, $sourceColor, $perImage);
+
+            $remaining = max(0, $perImage - $dbItems->count());
+            $unsplashItems = $remaining > 0
+                ? $this->getExploreFromUnsplash($topicId, $sourceColor, $remaining)
+                : collect();
+
+            $collected = $collected->concat($dbItems)->concat($unsplashItems);
+        }
+
+        return $collected
+            ->unique('uuid')
+            ->shuffle()
+            ->take($limit)
+            ->values();
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function getExploreFromDb(string $excludeImageUuid, string $excludeCollectionUuid, ?int $topicId, ?string $sourceColor, int $limit): Collection
+    {
+        $sourceRgb = $this->hexToRgb($sourceColor);
+
+        $rowsQuery = DB::table('images as i')
+            ->join('collections as c', 'c.uuid', '=', 'i.collection_uuid')
+            ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
+            ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
+            ->select([
+                'i.uuid',
+                'i.color',
+                'i.width',
+                'i.height',
+                'i.url_small',
+                'i.url_regular',
+                'i.url_full',
+                'i.download_url',
+                'i.created_at',
+                'c.uuid as collection_uuid',
+                'c.title as collection_title',
+                'c.description as collection_description',
+                'c.total_likes as collection_total_likes',
+                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_uuid = c.uuid) as collection_total_comments'),
+                'c.created_at as collection_created_at',
+                'c.updated_at as collection_updated_at',
+                'u.uuid as author_uuid',
+                'u.name as author_name',
+                'u.avatar_url as author_avatar_url',
+                'u.bio as author_bio',
+                't.id as topic_id',
+                't.name as topic_name',
+            ])
+            ->where('i.uuid', '!=', $excludeImageUuid)
+            ->where('i.collection_uuid', '!=', $excludeCollectionUuid);
+
+        if ($topicId !== null) {
+            $rowsQuery->where('c.topic_id', $topicId);
+        }
+
+        $rows = $rowsQuery
+            ->orderByDesc('c.total_likes')
+            ->limit($limit * 3)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        if ($sourceRgb !== null) {
+            $rows = $rows->sortBy(function (object $row) use ($sourceRgb): float {
+                $rgb = $this->hexToRgb($this->nullableString($row->color));
+                if ($rgb === null) {
+                    return PHP_FLOAT_MAX;
+                }
+                return $this->colorDistance($sourceRgb, $rgb);
+            })->values();
+        }
+
+        return $rows->take($limit)->map(function (object $row): array {
+            return [
+                'uuid' => $this->nullableString($row->uuid),
+                'color' => $row->color,
+                'width' => $row->width !== null ? (int) $row->width : null,
+                'height' => $row->height !== null ? (int) $row->height : null,
+                'url_small' => $this->nullableString($row->url_small),
+                'url_regular' => $this->nullableString($row->url_regular),
+                'url_full' => $this->nullableString($row->url_full),
+                'download_url' => $this->nullableString($row->download_url ?? $row->url_full),
+                'author' => [
+                    'uuid' => $this->nullableString($row->author_uuid),
+                    'name' => $this->nullableString($row->author_name),
+                    'avatar_url' => $this->nullableString($row->author_avatar_url),
+                    'bio' => $this->nullableString($row->author_bio),
+                ],
+                'collection' => [
+                    'uuid' => $this->nullableString($row->collection_uuid),
+                    'title' => $this->nullableString($row->collection_title),
+                    'description' => $this->nullableString($row->collection_description),
+                    'total_likes' => $row->collection_total_likes !== null ? (int) $row->collection_total_likes : null,
+                    'total_comments' => $row->collection_total_comments !== null ? (int) $row->collection_total_comments : null,
+                    'created_at' => $this->nullableString($row->collection_created_at),
+                    'created_at_human' => $this->humanizeDateTime($row->collection_created_at),
+                    'updated_at' => $this->nullableString($row->collection_updated_at),
+                    'updated_at_human' => $this->humanizeDateTime($row->collection_updated_at),
+                ],
+                'topic' => [
+                    'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
+                    'name' => $this->nullableString($row->topic_name),
+                ],
+                'created_at' => $this->nullableString($row->created_at),
+                'created_at_human' => $this->humanizeDateTime($row->created_at),
+            ];
+        })->values();
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function getExploreFromUnsplash(?int $topicId, ?string $sourceColor, int $limit): Collection
+    {
+        $accessKey = (string) config('services.unsplash.access_key');
+        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+
+        if ($accessKey === '') {
+            return collect();
+        }
+
+        $queryParts = [];
+
+        if ($topicId !== null) {
+            $topicName = $this->nullableString(DB::table('topics')->where('id', $topicId)->value('name'));
+            if ($topicName !== null) {
+                $queryParts[] = $topicName;
+            }
+        }
+
+        if ($sourceColor !== null) {
+            $colorKeyword = $this->hexToColorKeyword($sourceColor);
+            if ($colorKeyword !== null) {
+                $queryParts[] = $colorKeyword;
+            }
+        }
+
+        $params = ['count' => min($limit, 30)];
+
+        if (count($queryParts) > 0) {
+            $params['query'] = implode(' ', $queryParts);
+        }
+
+        if ($sourceColor !== null) {
+            $unsplashColor = $this->hexToUnsplashColor($sourceColor);
+            if ($unsplashColor !== null) {
+                $params['color'] = $unsplashColor;
+            }
+        }
+
+        $response = Http::retry(2, 500)
+            ->timeout(20)
+            ->acceptJson()
+            ->withHeaders([
+                'Authorization' => 'Client-ID ' . $accessKey,
+            ])
+            ->get($apiUrl . '/photos/random', $params);
+
+        if ($response->failed()) {
+            return collect();
+        }
+
+        $rows = $response->json();
+        if (!is_array($rows)) {
+            return collect();
+        }
+
+        if (isset($rows['id'])) {
+            $rows = [$rows];
+        }
+
+        return collect($rows)->map(function (array $photo): array {
+            $rawId = $this->nullableString($photo['id'] ?? null);
+            $createdAt = $this->nullableString($photo['created_at'] ?? null);
+            $updatedAt = $this->nullableString($photo['updated_at'] ?? null);
+
+            return [
+                'uuid' => $rawId,
+                'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
+                'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
+                'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
+                'total_comments' => null,
+                'is_liked' => false,
+                'images' => [
+                    [
+                        'uuid' => $rawId,
+                        'color' => $photo['color'] ?? null,
+                        'width' => isset($photo['width']) ? (int) $photo['width'] : null,
+                        'height' => isset($photo['height']) ? (int) $photo['height'] : null,
+                        'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
+                        'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
+                        'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
+                        'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
+                    ]
+                ],
+                'author' => [
+                    'uuid' => $this->nullableString($photo['user']['id'] ?? null),
+                    'name' => $this->nullableString($photo['user']['name'] ?? null),
+                    'avatar_url' => $this->nullableString($photo['user']['profile_image']['medium'] ?? null),
+                    'bio' => $this->nullableString($photo['user']['bio'] ?? null),
+                    'is_followed' => false,
+                ],
+                'topic' => [
+                    'id' => null,
+                    'name' => $this->extractUnsplashTopicName($photo),
+                ],
+                'created_at' => $createdAt,
+                'created_at_human' => $this->humanizeDateTime($createdAt),
+                'updated_at' => $updatedAt,
+                'updated_at_human' => $this->humanizeDateTime($updatedAt),
+            ];
+        })->values();
+    }
+
+    /**
+     * @return array{r: int, g: int, b: int}|null
+     */
+    private function hexToRgb(?string $hex): ?array
+    {
+        if ($hex === null) {
+            return null;
+        }
+
+        $hex = ltrim($hex, '#');
+
+        if (strlen($hex) === 3) {
+            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+
+        if (strlen($hex) !== 6) {
+            return null;
+        }
+
+        return [
+            'r' => hexdec(substr($hex, 0, 2)),
+            'g' => hexdec(substr($hex, 2, 2)),
+            'b' => hexdec(substr($hex, 4, 2)),
+        ];
+    }
+
+    /**
+     * @param array{r: int, g: int, b: int} $a
+     * @param array{r: int, g: int, b: int} $b
+     */
+    private function colorDistance(array $a, array $b): float
+    {
+        return sqrt(
+            ($a['r'] - $b['r']) ** 2 +
+            ($a['g'] - $b['g']) ** 2 +
+            ($a['b'] - $b['b']) ** 2
+        );
+    }
+
+    private function hexToColorKeyword(?string $hex): ?string
+    {
+        $rgb = $this->hexToRgb($hex);
+        if ($rgb === null) {
+            return null;
+        }
+
+        $r = $rgb['r'];
+        $g = $rgb['g'];
+        $b = $rgb['b'];
+        $max = max($r, $g, $b);
+        $min = min($r, $g, $b);
+        $lightness = ($max + $min) / 2;
+
+        if ($lightness < 40) {
+            return 'dark';
+        }
+
+        if ($lightness > 200) {
+            return 'light';
+        }
+
+        if ($r > $g && $r > $b) {
+            return 'red';
+        }
+
+        if ($g > $r && $g > $b) {
+            return 'green';
+        }
+
+        if ($b > $r && $b > $g) {
+            return 'blue';
+        }
+
+        if ($r > 180 && $g > 180 && $b < 100) {
+            return 'yellow';
+        }
+
+        if ($r > 180 && $g < 100 && $b > 180) {
+            return 'purple';
+        }
+
+        if ($r > 180 && $g > 100 && $b < 80) {
+            return 'orange';
+        }
+
+        return null;
+    }
+
+    private function hexToUnsplashColor(?string $hex): ?string
+    {
+        $keyword = $this->hexToColorKeyword($hex);
+
+        $map = [
+            'dark' => 'black',
+            'light' => 'white',
+            'red' => 'red',
+            'green' => 'green',
+            'blue' => 'blue',
+            'yellow' => 'yellow',
+            'purple' => 'purple',
+            'orange' => 'orange',
+        ];
+
+        return $keyword !== null ? ($map[$keyword] ?? null) : null;
+    }
+
     private function nullableString(mixed $value): ?string
     {
         if ($value === null) {
