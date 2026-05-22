@@ -405,7 +405,9 @@ class ImageService
             })->values();
         }
 
-        return $rows->take($limit)->map(function (object $row): array {
+        $rows = $rows->take($limit)->values();
+
+        return $rows->map(function (object $row): array {
             return [
                 'uuid' => $this->nullableString($row->uuid),
                 'color' => $row->color,
@@ -718,6 +720,71 @@ class ImageService
         }
 
         return str_replace('-', ' ', (string) $firstKey);
+    }
+
+    /**
+     * @param list<string> $collectionUuids
+     * @return \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, array<string, mixed>>>
+     */
+    private function getCommentsByCollection(array $collectionUuids): Collection
+    {
+        if (count($collectionUuids) === 0) {
+            return collect();
+        }
+
+        return DB::table('comments as cm')
+            ->join('users as u', 'u.uuid', '=', 'cm.user_uuid')
+            ->select([
+                'cm.id',
+                'cm.collection_uuid',
+                'cm.user_uuid',
+                'cm.parent_id',
+                'cm.context',
+                'cm.created_at',
+                'cm.updated_at',
+                'u.name as user_name',
+                'u.avatar_url as user_avatar_url',
+                'u.bio as user_bio',
+            ])
+            ->whereIn('cm.collection_uuid', $collectionUuids)
+            ->orderBy('cm.created_at')
+            ->get()
+            ->groupBy('collection_uuid')
+            ->map(function (Collection $comments): Collection {
+                return $comments->map(function (object $comment): array {
+                    return [
+                        'id' => (int) $comment->id,
+                        'collection_uuid' => $this->nullableString($comment->collection_uuid),
+                        'parent_id' => $comment->parent_id !== null ? (int) $comment->parent_id : null,
+                        'context' => $this->nullableString($comment->context),
+                        'user' => [
+                            'uuid' => $this->nullableString($comment->user_uuid),
+                            'name' => $this->nullableString($comment->user_name),
+                            'avatar_url' => $this->nullableString($comment->user_avatar_url),
+                            'bio' => $this->nullableString($comment->user_bio),
+                        ],
+                        'created_at' => $this->nullableString($comment->created_at),
+                        'created_at_human' => $this->humanizeDateTime($comment->created_at),
+                        'updated_at' => $this->nullableString($comment->updated_at),
+                        'updated_at_human' => $this->humanizeDateTime($comment->updated_at),
+                    ];
+                })->values();
+            });
+    }
+
+    public function getCollectionCommentsByUuid(string $collectionUuid): ?Collection
+    {
+        $exists = DB::table('collections')
+            ->where('uuid', $collectionUuid)
+            ->exists();
+
+        if (!$exists) {
+            return null;
+        }
+
+        return $this->getCommentsByCollection([$collectionUuid])
+            ->get($collectionUuid, collect())
+            ->values();
     }
 
     public function getImageDetailByUuid(string $uuid): ?array

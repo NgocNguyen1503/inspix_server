@@ -9,4 +9,5 @@ Route::prefix('v1')->group(function (): void {
 
     Route::get('collections/random', [ImageController::class, 'random']);
     Route::get('collections/explore/{collectionUuid}', [ImageController::class, 'explore']);
+    Route::get('collections/{collectionUuid}/comments', [ImageController::class, 'comments']);
 });
