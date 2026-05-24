@@ -104,4 +104,44 @@ class ImageController extends Controller
             ['count' => $comments->count()]
         );
     }
+
+    public function search(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'searchKey' => ['required', 'string', 'min:1'],
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:60'],
+            'offset' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        if ($validator->fails()) {
+            return ApiResponse::unprocessableContent($validator->errors()->toArray(), 'Validation failed.');
+        }
+
+        $validated = $validator->validated();
+        $searchKey = (string) $validated['searchKey'];
+        $limit = (int) ($validated['limit'] ?? 12);
+        $offset = (int) ($validated['offset'] ?? 0);
+
+        $userUuid = $request->user()?->getAuthIdentifier();
+
+        $result = $this->imageService->searchCollections($searchKey, $limit, $offset, $userUuid);
+
+        return ApiResponse::success(
+            [
+                'artists' => $result['artists'],
+                'collections' => $result['collections'],
+                'photos' => $result['photos'],
+            ],
+            'Search results fetched successfully.',
+            [
+                'limit' => $limit,
+                'offset' => $offset,
+                'counts' => [
+                    'artists' => $result['totals']['artists'] ?? 0,
+                    'collections' => $result['totals']['collections'] ?? 0,
+                    'photos' => $result['totals']['photos'] ?? 0,
+                ],
+            ]
+        );
+    }
 }

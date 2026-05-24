@@ -3,6 +3,9 @@
 namespace App\Services;
 
 use Carbon\Carbon;
+/**
+ * @method array searchCollections(string $searchKey, int $limit = 12, int $offset = 0, ?string $userUuid = null)
+ */
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -785,6 +788,242 @@ class ImageService
         return $this->getCommentsByCollection([$collectionUuid])
             ->get($collectionUuid, collect())
             ->values();
+    }
+
+    /**
+     * Search collections/photos by a free text key across collections title/description, topic name, author name, and unsplash.
+     * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
+     */
+    public function searchCollections(string $searchKey, int $limit = 12, int $offset = 0, ?string $userUuid = null): array
+    {
+        $searchKey = trim($searchKey);
+        if ($searchKey === '') {
+            return ['items' => collect(), 'total' => 0];
+        }
+
+        $like = '%' . $searchKey . '%';
+
+        $totalQuery = DB::table('collections as c')
+            ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
+            ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
+            ->leftJoin('images as i', 'i.collection_uuid', '=', 'c.uuid')
+            ->where(function ($q) use ($searchKey, $like) {
+                $q->where('c.title', 'like', $like)
+                    ->orWhere('c.description', 'like', $like)
+                    ->orWhere('u.name', 'like', $like)
+                    ->orWhere('t.name', 'like', $like)
+                    ->orWhere('i.url_regular', 'like', $like);
+            });
+
+        $totalCollections = (int) $totalQuery->distinct('c.uuid')->count('c.uuid');
+
+        // artists total
+        $artistsTotal = (int) DB::table('users')->where('name', 'like', $like)->count();
+
+        $rowsQuery = DB::table('collections as c')
+            ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
+            ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
+            ->select([
+                'c.uuid',
+                'c.title',
+                'c.description',
+                'c.total_likes',
+                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_uuid = c.uuid) as total_comments'),
+                'c.created_at',
+                'c.updated_at',
+                'u.uuid as author_uuid',
+                'u.name as author_name',
+                'u.avatar_url as author_avatar_url',
+                'u.bio as author_bio',
+                't.id as topic_id',
+                't.name as topic_name',
+            ])
+            ->where(function ($q) use ($like) {
+                $q->where('c.title', 'like', $like)
+                    ->orWhere('c.description', 'like', $like)
+                    ->orWhere('u.name', 'like', $like)
+                    ->orWhere('t.name', 'like', $like);
+            })
+            ->orderByDesc('c.created_at')
+            ->orderByDesc('c.uuid')
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+
+        $collections = collect();
+
+        if ($rowsQuery->isNotEmpty()) {
+            $collectionUuids = $rowsQuery->pluck('uuid')->map(fn($u) => $this->nullableString($u))->filter()->values()->all();
+
+            $imagesByCollection = DB::table('images')
+                ->select(['uuid', 'color', 'width', 'height', 'url_small', 'url_regular', 'url_full', 'download_url', 'collection_uuid'])
+                ->whereIn('collection_uuid', $collectionUuids)
+                ->orderBy('created_at')
+                ->get()
+                ->groupBy('collection_uuid');
+
+            $likedCollectionUuids = $userUuid !== null
+                ? DB::table('likes')->where('user_uuid', $userUuid)->pluck('collection_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all()
+                : [];
+
+            $likedCollectionMap = collect($likedCollectionUuids)->flip();
+
+            $collections = $rowsQuery->map(function (object $row) use ($imagesByCollection, $likedCollectionMap) {
+                $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
+                    return [
+                        'uuid' => $this->nullableString($image->uuid),
+                        'color' => $image->color,
+                        'width' => $image->width !== null ? (int) $image->width : null,
+                        'height' => $image->height !== null ? (int) $image->height : null,
+                        'url_small' => $this->nullableString($image->url_small),
+                        'url_regular' => $this->nullableString($image->url_regular),
+                        'url_full' => $this->nullableString($image->url_full),
+                        'download_url' => $this->nullableString($image->download_url ?? $image->url_full),
+                    ];
+                })->values();
+
+                return [
+                    'uuid' => $this->nullableString($row->uuid),
+                    'title' => $this->nullableString($row->title),
+                    'description' => $this->nullableString($row->description),
+                    'total_likes' => (int) $row->total_likes,
+                    'total_comments' => (int) ($row->total_comments ?? 0),
+                    'is_liked' => $likedCollectionMap->has((string) $row->uuid),
+                    'images' => $collectionImages,
+                    'author' => [
+                        'uuid' => $this->nullableString($row->author_uuid),
+                        'name' => $this->nullableString($row->author_name),
+                        'avatar_url' => $this->nullableString($row->author_avatar_url),
+                        'bio' => $this->nullableString($row->author_bio),
+                        'is_followed' => false,
+                    ],
+                    'topic' => [
+                        'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
+                        'name' => $this->nullableString($row->topic_name),
+                    ],
+                    'created_at' => $this->nullableString($row->created_at),
+                    'created_at_human' => $this->humanizeDateTime($row->created_at),
+                    'updated_at' => $this->nullableString($row->updated_at),
+                    'updated_at_human' => $this->humanizeDateTime($row->updated_at),
+                ];
+            })->values();
+        }
+
+        // artists
+        $artistRows = DB::table('users')
+            ->select(['uuid', 'name', 'avatar_url', 'bio'])
+            ->where('name', 'like', $like)
+            ->orderByDesc('created_at')
+            ->orderByDesc('uuid')
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+
+        $artists = $artistRows->map(function (object $row): array {
+            return [
+                'uuid' => $this->nullableString($row->uuid),
+                'name' => $this->nullableString($row->name),
+                'avatar_url' => $this->nullableString($row->avatar_url),
+                'bio' => $this->nullableString($row->bio),
+            ];
+        })->values();
+
+        // photos from unsplash to fill
+        $photos = collect();
+        if ($collections->count() < $limit) {
+            $remaining = $limit - $collections->count();
+
+            $photos = $this->searchUnsplashPhotos($searchKey, $remaining, $offset);
+        }
+
+        return [
+            'artists' => $artists,
+            'collections' => $collections->take($limit)->values(),
+            'photos' => $photos->take($limit)->values(),
+            'totals' => [
+                'collections' => $totalCollections,
+                'artists' => $artistsTotal,
+                'photos' => isset($json) && is_array($json) && isset($json['total']) ? (int) $json['total'] : 0,
+            ],
+        ];
+    }
+
+    /**
+     * Search photos on Unsplash and map to item shape.
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function searchUnsplashPhotos(string $queryText, int $limit, int $offset = 0): Collection
+    {
+        $accessKey = (string) config('services.unsplash.access_key');
+        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+
+        if ($accessKey === '') {
+            return collect();
+        }
+
+        $params = [
+            'query' => $queryText,
+            'per_page' => min($limit, 30),
+            'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
+        ];
+
+        $response = Http::retry(2, 500)
+            ->timeout(20)
+            ->acceptJson()
+            ->withHeaders(['Authorization' => 'Client-ID ' . $accessKey])
+            ->get($apiUrl . '/search/photos', $params);
+
+        if ($response->failed()) {
+            return collect();
+        }
+
+        $json = $response->json();
+        if (!is_array($json) || !isset($json['results'])) {
+            return collect();
+        }
+
+        $rows = $json['results'];
+
+        return collect($rows)->map(function (array $photo): array {
+            $rawId = $this->nullableString($photo['id'] ?? null);
+            $createdAt = $this->nullableString($photo['created_at'] ?? null);
+
+            return [
+                'uuid' => $rawId,
+                'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
+                'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
+                'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
+                'total_comments' => null,
+                'is_liked' => false,
+                'images' => [
+                    [
+                        'uuid' => $rawId,
+                        'color' => $photo['color'] ?? null,
+                        'width' => isset($photo['width']) ? (int) $photo['width'] : null,
+                        'height' => isset($photo['height']) ? (int) $photo['height'] : null,
+                        'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
+                        'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
+                        'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
+                        'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
+                    ]
+                ],
+                'author' => [
+                    'uuid' => $this->nullableString($photo['user']['id'] ?? null),
+                    'name' => $this->nullableString($photo['user']['name'] ?? null),
+                    'avatar_url' => $this->nullableString($photo['user']['profile_image']['medium'] ?? null),
+                    'bio' => $this->nullableString($photo['user']['bio'] ?? null),
+                    'is_followed' => false,
+                ],
+                'topic' => [
+                    'id' => null,
+                    'name' => $this->extractUnsplashTopicName($photo),
+                ],
+                'created_at' => $createdAt,
+                'created_at_human' => $this->humanizeDateTime($createdAt),
+                'updated_at' => $this->nullableString($photo['updated_at'] ?? null),
+                'updated_at_human' => $this->humanizeDateTime($photo['updated_at'] ?? null),
+            ];
+        })->values();
     }
 
     public function getImageDetailByUuid(string $uuid): ?array
