@@ -303,7 +303,7 @@ class ImageService
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>|null
      */
-    public function getExploreByCollection(string $collectionUuid, int $limit = 12): ?Collection
+    public function getExploreByCollection(string $collectionUuid, int $limit = 12, int $offset = 0): ?Collection
     {
         $collection = DB::table('collections')
             ->where('uuid', $collectionUuid)
@@ -343,6 +343,7 @@ class ImageService
         return $collected
             ->unique('uuid')
             ->shuffle()
+            ->skip($offset)
             ->take($limit)
             ->values();
     }

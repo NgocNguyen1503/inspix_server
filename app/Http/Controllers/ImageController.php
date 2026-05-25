@@ -42,7 +42,7 @@ class ImageController extends Controller
         $total = (int) $feed['total'];
 
         return ApiResponse::success(
-            ['items' => $items],
+            $items,
             'Collections fetched successfully.',
             [
                 'limit' => $limit,
@@ -69,6 +69,7 @@ class ImageController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:30'],
+            'offset' => ['sometimes', 'integer', 'min:0'],
         ]);
 
         if ($validator->fails()) {
@@ -76,15 +77,16 @@ class ImageController extends Controller
         }
 
         $limit = (int) ($validator->validated()['limit'] ?? 12);
+        $offset = (int) ($validator->validated()['offset'] ?? 0);
 
-        $items = $this->imageService->getExploreByCollection($collectionUuid, $limit);
+        $items = $this->imageService->getExploreByCollection($collectionUuid, $limit, $offset);
 
         if ($items === null) {
             return ApiResponse::dataNotfound(['collection_uuid' => ['Collection not found.']], 'Collection not found.');
         }
 
         return ApiResponse::success(
-            ['items' => $items],
+            $items,
             'Explore images fetched successfully.',
             ['count' => $items->count()]
         );
@@ -99,7 +101,7 @@ class ImageController extends Controller
         }
 
         return ApiResponse::success(
-            ['items' => $comments],
+            $comments,
             'Collection comments fetched successfully.',
             ['count' => $comments->count()]
         );
