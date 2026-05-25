@@ -840,6 +840,41 @@ class ImageService
         return Carbon::parse($dateTime)->diffForHumans();
     }
 
+    private function resolveAvatarUrl(?string $avatarUrl): ?string
+    {
+        $url = $this->nullableString($avatarUrl);
+        if ($url === null) {
+            return null;
+        }
+
+        // Check if it's an absolute URL (from external service)
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            return $url;
+        }
+
+        // Check if local file exists with the specified path
+        $localPath = public_path(ltrim($url, '/'));
+        if (file_exists($localPath)) {
+            return $url;
+        }
+
+        // Try to find any available avatar on the server as fallback
+        $avatarDir = public_path('uploads/avatars');
+        if (file_exists($avatarDir)) {
+            $files = array_diff(scandir($avatarDir), ['.', '..']);
+            $files = array_values($files);
+            if (count($files) > 0) {
+                // Use a consistent fallback based on URL hash to ensure same user gets same avatar
+                $index = abs(crc32($url)) % count($files);
+                return '/uploads/avatars/' . $files[$index];
+            }
+        }
+
+        // Last resort: external fallback using Picsum Photos
+        $seed = basename($url, '.jpg');
+        return 'https://picsum.photos/seed/' . rawurlencode($seed) . '/300/300.jpg';
+    }
+
     private function buildUnsplashQueryFromUser(?string $userUuid): ?string
     {
         if ($userUuid === null) {
@@ -925,7 +960,7 @@ class ImageService
                         'user' => [
                             'uuid' => $this->nullableString($comment->user_uuid),
                             'name' => $this->nullableString($comment->user_name),
-                            'avatar_url' => $this->nullableString($comment->user_avatar_url),
+                            'avatar_url' => $this->resolveAvatarUrl($comment->user_avatar_url),
                             'bio' => $this->nullableString($comment->user_bio),
                         ],
                         'created_at' => $this->nullableString($comment->created_at),
