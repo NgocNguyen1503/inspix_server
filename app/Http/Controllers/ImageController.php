@@ -92,21 +92,6 @@ class ImageController extends Controller
         );
     }
 
-    public function comments(string $collectionUuid): JsonResponse
-    {
-        $comments = $this->imageService->getCollectionCommentsByUuid($collectionUuid);
-
-        if ($comments === null) {
-            return ApiResponse::dataNotfound(['collection_uuid' => ['Collection not found.']], 'Collection not found.');
-        }
-
-        return ApiResponse::success(
-            $comments,
-            'Collection comments fetched successfully.',
-            ['count' => $comments->count()]
-        );
-    }
-
     public function search(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [

@@ -324,28 +324,93 @@ class ImageService
             return collect();
         }
 
-        $perImage = (int) ceil($limit / $sourceImages->count());
+        $targetCount = $offset + $limit;
+        $perImage = (int) ceil(max($targetCount, $limit) * 2 / max(1, $sourceImages->count()));
         $collected = collect();
 
         foreach ($sourceImages as $image) {
             $sourceColor = $this->nullableString($image->color);
 
             $dbItems = $this->getExploreFromDb((string) $image->uuid, $collectionUuid, $topicId, $sourceColor, $perImage);
-
-            $remaining = max(0, $perImage - $dbItems->count());
-            $unsplashItems = $remaining > 0
-                ? $this->getExploreFromUnsplash($topicId, $sourceColor, $remaining)
-                : collect();
+            $unsplashItems = $this->getExploreFromUnsplash($topicId, $sourceColor, $perImage);
 
             $collected = $collected->concat($dbItems)->concat($unsplashItems);
         }
 
-        return $collected
-            ->unique('uuid')
+        $collectionUuids = $collected
+            ->map(fn($item) => $item['collection']['uuid'] ?? $item['uuid'] ?? null)
+            ->filter()
+            ->unique()
             ->shuffle()
-            ->skip($offset)
-            ->take($limit)
             ->values();
+
+        if ($collectionUuids->count() < $targetCount) {
+            $need = $targetCount - $collectionUuids->count();
+
+            $fillUuids = DB::table('collections as c')
+                ->select('c.uuid')
+                ->where('c.uuid', '!=', $collectionUuid)
+                ->whereNotIn('c.uuid', $collectionUuids->all())
+                ->when($topicId !== null, fn($q) => $q->where('c.topic_id', $topicId))
+                ->orderByDesc('c.total_likes')
+                ->orderByDesc('c.created_at')
+                ->limit($need)
+                ->pluck('uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
+                ->values();
+
+            if ($fillUuids->isNotEmpty()) {
+                $collectionUuids = $collectionUuids->concat($fillUuids)->unique()->values();
+            }
+        }
+
+        if ($collectionUuids->count() < $targetCount) {
+            $need = $targetCount - $collectionUuids->count();
+
+            $fillUuids = DB::table('collections as c')
+                ->select('c.uuid')
+                ->where('c.uuid', '!=', $collectionUuid)
+                ->whereNotIn('c.uuid', $collectionUuids->all())
+                ->when($topicId !== null, fn($q) => $q->where(function ($query) use ($topicId): void {
+                    $query->where('c.topic_id', '!=', $topicId)->orWhereNull('c.topic_id');
+                }))
+                ->orderByDesc('c.total_likes')
+                ->orderByDesc('c.created_at')
+                ->limit($need)
+                ->pluck('uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
+                ->values();
+
+            if ($fillUuids->isNotEmpty()) {
+                $collectionUuids = $collectionUuids->concat($fillUuids)->unique()->values();
+            }
+        }
+
+        $pageUuids = $collectionUuids->slice($offset, $limit)->values();
+
+        if ($pageUuids->isEmpty()) {
+            return $collected->unique('uuid')->shuffle()->slice($offset, $limit)->values();
+        }
+
+        $items = $this->getCollectionsByUuids($pageUuids->all());
+
+        if ($items->count() < $limit) {
+            $remaining = $limit - $items->count();
+            $leftover = $collected
+                ->filter(fn($item) => !isset($item['collection']['uuid']) || in_array($item['collection']['uuid'], $pageUuids->all(), true) === false)
+                ->unique('uuid')
+                ->shuffle()
+                ->take($remaining)
+                ->values();
+
+            if ($leftover->isNotEmpty()) {
+                $items = $items->concat($leftover)->values();
+            }
+        }
+
+        return $items;
     }
 
     /**
@@ -355,7 +420,7 @@ class ImageService
     {
         $sourceRgb = $this->hexToRgb($sourceColor);
 
-        $rowsQuery = DB::table('images as i')
+        $rowsQueryBase = DB::table('images as i')
             ->join('collections as c', 'c.uuid', '=', 'i.collection_uuid')
             ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
             ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
@@ -386,6 +451,7 @@ class ImageService
             ->where('i.uuid', '!=', $excludeImageUuid)
             ->where('i.collection_uuid', '!=', $excludeCollectionUuid);
 
+        $rowsQuery = clone $rowsQueryBase;
         if ($topicId !== null) {
             $rowsQuery->where('c.topic_id', $topicId);
         }
@@ -394,6 +460,10 @@ class ImageService
             ->orderByDesc('c.total_likes')
             ->limit($limit * 3)
             ->get();
+
+        if ($rows->isEmpty() && $topicId !== null) {
+            $rows = $rowsQueryBase->orderByDesc('c.total_likes')->limit($limit * 3)->get();
+        }
 
         if ($rows->isEmpty()) {
             return collect();
@@ -551,6 +621,97 @@ class ImageService
                 'updated_at_human' => $this->humanizeDateTime($updatedAt),
             ];
         })->values();
+    }
+
+    /**
+     * @param list<string> $collectionUuids
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function getCollectionsByUuids(array $collectionUuids): Collection
+    {
+        if (count($collectionUuids) === 0) {
+            return collect();
+        }
+
+        $rows = DB::table('collections as c')
+            ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
+            ->leftJoin('topics as t', 't.id', '=', 'c.topic_id')
+            ->select([
+                'c.uuid',
+                'c.title',
+                'c.description',
+                'c.total_likes',
+                DB::raw('(SELECT COUNT(*) FROM comments cm WHERE cm.collection_uuid = c.uuid) as total_comments'),
+                'c.created_at',
+                'c.updated_at',
+                'u.uuid as author_uuid',
+                'u.name as author_name',
+                'u.avatar_url as author_avatar_url',
+                'u.bio as author_bio',
+                't.id as topic_id',
+                't.name as topic_name',
+            ])
+            ->whereIn('c.uuid', $collectionUuids)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $rowsMap = $rows->keyBy('uuid');
+        $collectionUuidsQuery = $rows->pluck('uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->values()->all();
+
+        $imagesByCollection = DB::table('images')
+            ->select(['uuid', 'color', 'width', 'height', 'url_small', 'url_regular', 'url_full', 'download_url', 'collection_uuid'])
+            ->whereIn('collection_uuid', $collectionUuidsQuery)
+            ->orderBy('created_at')
+            ->get()
+            ->groupBy('collection_uuid');
+
+        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection): ?array {
+            $row = $rowsMap->get($uuid);
+            if ($row === null) {
+                return null;
+            }
+
+            $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
+                return [
+                    'uuid' => $this->nullableString($image->uuid),
+                    'color' => $image->color,
+                    'width' => $image->width !== null ? (int) $image->width : null,
+                    'height' => $image->height !== null ? (int) $image->height : null,
+                    'url_small' => $this->nullableString($image->url_small),
+                    'url_regular' => $this->nullableString($image->url_regular),
+                    'url_full' => $this->nullableString($image->url_full),
+                    'download_url' => $this->nullableString($image->download_url ?? $image->url_full),
+                ];
+            })->values();
+
+            return [
+                'uuid' => $this->nullableString($row->uuid),
+                'title' => $this->nullableString($row->title),
+                'description' => $this->nullableString($row->description),
+                'total_likes' => (int) $row->total_likes,
+                'total_comments' => (int) ($row->total_comments ?? 0),
+                'is_liked' => false,
+                'images' => $collectionImages,
+                'author' => [
+                    'uuid' => $this->nullableString($row->author_uuid),
+                    'name' => $this->nullableString($row->author_name),
+                    'avatar_url' => $this->nullableString($row->author_avatar_url),
+                    'bio' => $this->nullableString($row->author_bio),
+                    'is_followed' => false,
+                ],
+                'topic' => [
+                    'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
+                    'name' => $this->nullableString($row->topic_name),
+                ],
+                'created_at' => $this->nullableString($row->created_at),
+                'created_at_human' => $this->humanizeDateTime($row->created_at),
+                'updated_at' => $this->nullableString($row->updated_at),
+                'updated_at_human' => $this->humanizeDateTime($row->updated_at),
+            ];
+        })->filter()->values();
     }
 
     /**
