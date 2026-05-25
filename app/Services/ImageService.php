@@ -123,10 +123,12 @@ class ImageService
             ->get()
             ->groupBy('collection_uuid');
 
+        $latestCommentsByCollection = $this->getLatestCommentsByCollections($collectionUuids);
+
         $likedCollectionMap = collect($likedCollectionUuids)->flip();
         $followedAuthorMap = collect($followedAuthorUuids)->flip();
 
-        $items = $rows->map(function (object $row) use ($imagesByCollection, $userUuid, $likedCollectionMap, $followedAuthorMap): array {
+        $items = $rows->map(function (object $row) use ($imagesByCollection, $userUuid, $likedCollectionMap, $followedAuthorMap, $latestCommentsByCollection): array {
             $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
                 return [
                     'uuid' => $this->nullableString($image->uuid),
@@ -151,7 +153,7 @@ class ImageService
                 'author' => [
                     'uuid' => $this->nullableString($row->author_uuid),
                     'name' => $this->nullableString($row->author_name),
-                    'avatar_url' => $this->nullableString($row->author_avatar_url),
+                    'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                     'is_followed' => $userUuid !== null ? $followedAuthorMap->has((string) $row->author_uuid) : false,
                 ],
@@ -163,6 +165,7 @@ class ImageService
                 'created_at_human' => $this->humanizeDateTime($row->created_at),
                 'updated_at' => $this->nullableString($row->updated_at),
                 'updated_at_human' => $this->humanizeDateTime($row->updated_at),
+                'latest_comment' => $latestCommentsByCollection->get($row->uuid, null),
             ];
         })->values();
 
@@ -494,7 +497,7 @@ class ImageService
                 'author' => [
                     'uuid' => $this->nullableString($row->author_uuid),
                     'name' => $this->nullableString($row->author_name),
-                    'avatar_url' => $this->nullableString($row->author_avatar_url),
+                    'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                 ],
                 'collection' => [
@@ -698,7 +701,7 @@ class ImageService
                 'author' => [
                     'uuid' => $this->nullableString($row->author_uuid),
                     'name' => $this->nullableString($row->author_name),
-                    'avatar_url' => $this->nullableString($row->author_avatar_url),
+                    'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                     'is_followed' => false,
                 ],
@@ -970,6 +973,68 @@ class ImageService
                     ];
                 })->values();
             });
+    }
+
+    /**
+     * Get the latest comment for each collection
+     * @param list<string> $collectionUuids
+     * @return \Illuminate\Support\Collection<string, array<string, mixed>|null>
+     */
+    private function getLatestCommentsByCollections(array $collectionUuids): Collection
+    {
+        if (count($collectionUuids) === 0) {
+            return collect();
+        }
+
+        $comments = DB::table('comments as cm')
+            ->join('users as u', 'u.uuid', '=', 'cm.user_uuid')
+            ->select([
+                'cm.id',
+                'cm.collection_uuid',
+                'cm.user_uuid',
+                'cm.parent_id',
+                'cm.context',
+                'cm.created_at',
+                'cm.updated_at',
+                'u.name as user_name',
+                'u.avatar_url as user_avatar_url',
+                'u.bio as user_bio',
+            ])
+            ->whereIn('cm.collection_uuid', $collectionUuids)
+            ->orderByDesc('cm.created_at')
+            ->get()
+            ->groupBy('collection_uuid')
+            ->map(function (Collection $itemComments): ?array {
+                $latestComment = $itemComments->first();
+                if ($latestComment === null) {
+                    return null;
+                }
+
+                return [
+                    'id' => (int) $latestComment->id,
+                    'collection_uuid' => $this->nullableString($latestComment->collection_uuid),
+                    'parent_id' => $latestComment->parent_id !== null ? (int) $latestComment->parent_id : null,
+                    'context' => $this->nullableString($latestComment->context),
+                    'user' => [
+                        'uuid' => $this->nullableString($latestComment->user_uuid),
+                        'name' => $this->nullableString($latestComment->user_name),
+                        'avatar_url' => $this->resolveAvatarUrl($latestComment->user_avatar_url),
+                        'bio' => $this->nullableString($latestComment->user_bio),
+                    ],
+                    'created_at' => $this->nullableString($latestComment->created_at),
+                    'created_at_human' => $this->humanizeDateTime($latestComment->created_at),
+                    'updated_at' => $this->nullableString($latestComment->updated_at),
+                    'updated_at_human' => $this->humanizeDateTime($latestComment->updated_at),
+                ];
+            });
+
+        // Ensure all collection UUIDs have an entry in the result (null if no comment)
+        $result = collect();
+        foreach ($collectionUuids as $uuid) {
+            $result[$uuid] = $comments->get($uuid, null);
+        }
+
+        return $result;
     }
 
     public function getCollectionCommentsByUuid(string $collectionUuid): ?Collection
@@ -1274,7 +1339,7 @@ class ImageService
             'author' => [
                 'uuid' => $this->nullableString($row->author_uuid),
                 'name' => $this->nullableString($row->author_name),
-                'avatar_url' => $this->nullableString($row->author_avatar_url),
+                'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                 'bio' => $this->nullableString($row->author_bio),
             ],
             'collection' => [

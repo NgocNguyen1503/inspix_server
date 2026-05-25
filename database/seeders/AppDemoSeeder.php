@@ -55,11 +55,9 @@ class AppDemoSeeder extends Seeder
 
         $now = now();
         $userRows = [];
+        $avatarFiles = $this->getAvailableAvatarFiles();
         foreach ($profileNames as $index => $name) {
-            $avatarFileName = 'avatar-' . ($index + 1) . '.jpg';
-            $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
-            $avatarSeed = 'avatar-' . ($index + 1);
-            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, $avatarSeed, $writeLocalFiles);
+            $avatarPublicUrl = $this->resolveDemoAvatarUrl($avatarFiles, $index);
 
             $userRows[] = [
                 'uuid' => (string) Str::uuid(),
@@ -360,10 +358,9 @@ class AppDemoSeeder extends Seeder
             ->get()
             ->keyBy('user_uuid');
 
+        $avatarFiles = $this->getAvailableAvatarFiles();
         foreach ($userUuids as $userUuid) {
-            $avatarFileName = 'avatar-' . $userUuid . '.jpg';
-            $avatarRelativePath = '/uploads/avatars/' . $avatarFileName;
-            $avatarPublicUrl = $this->resolveDemoImageUrl($avatarRelativePath, 300, 300, 'avatar-user-' . $userUuid, $writeLocalFiles);
+            $avatarPublicUrl = $this->resolveDemoAvatarUrl($avatarFiles, $userUuid);
 
             DB::table('users')->where('uuid', $userUuid)->update([
                 'bio' => $bioPool[array_rand($bioPool)],
@@ -476,6 +473,36 @@ class AppDemoSeeder extends Seeder
 
         $this->writeRealImage(public_path(ltrim($relativePath, '/')), $width, $height, $seed);
         return $this->toPublicUrl($relativePath);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function getAvailableAvatarFiles(): array
+    {
+        $avatarDirectory = public_path('uploads/avatars');
+        if (!File::exists($avatarDirectory)) {
+            return [];
+        }
+
+        return collect(File::files($avatarDirectory))
+            ->map(fn($file) => $file->getFilename())
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param list<string> $avatarFiles
+     */
+    private function resolveDemoAvatarUrl(array $avatarFiles, int|string $seed): string
+    {
+        if (count($avatarFiles) === 0) {
+            return '/uploads/avatars/avatar-1.jpg';
+        }
+
+        $index = abs((int) crc32((string) $seed)) % count($avatarFiles);
+        return '/uploads/avatars/' . $avatarFiles[$index];
     }
 
     private function toRemoteImageUrl(string $seed, int $width, int $height): string
