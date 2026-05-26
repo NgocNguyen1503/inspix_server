@@ -1201,7 +1201,6 @@ class ImageService
                 ->values();
         }
 
-        s
         return collect();
     }
 
