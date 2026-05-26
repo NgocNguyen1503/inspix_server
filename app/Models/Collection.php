@@ -19,22 +19,20 @@ class Collection extends Model
 
     protected $primaryKey = 'uuid';
 
-    /**
-     * @var list<string>
-     */
     protected $fillable = [
         'user_uuid',
+        'source',
+        'external_id',
         'title',
         'description',
         'topic_id',
         'total_likes',
     ];
 
-    /**
-     * @var array<string, string>
-     */
     protected $casts = [
         'user_uuid' => 'string',
+        'source' => 'string',
+        'external_id' => 'string',
         'topic_id' => 'integer',
         'total_likes' => 'integer',
     ];
