@@ -1512,4 +1512,44 @@ class ImageService
             'created_at' => $this->nullableString($row->image_created_at),
         ];
     }
+
+    public function getRandomUnsplashPhotoUrlForTopic(?int $topicId): ?string
+    {
+        if ($topicId === null) {
+            return null;
+        }
+
+        $topicName = $this->nullableString(DB::table('topics')->where('id', $topicId)->value('name'));
+        if ($topicName === null) {
+            return null;
+        }
+
+        $accessKey = (string) config('services.unsplash.access_key');
+        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+
+        if ($accessKey !== '') {
+            try {
+                $response = Http::retry(2, 500)
+                    ->timeout(20)
+                    ->acceptJson()
+                    ->withHeaders([
+                        'Authorization' => 'Client-ID ' . $accessKey,
+                    ])
+                    ->get($apiUrl . '/photos/random', [
+                        'query' => $topicName,
+                        'count' => 1,
+                    ]);
+
+                if ($response->successful()) {
+                    $photo = $response->json();
+                    if (is_array($photo) && isset($photo['urls']['regular'])) {
+                        return $this->nullableString($photo['urls']['regular']);
+                    }
+                }
+            } catch (\Exception $e) {
+            }
+        }
+
+        return 'https://picsum.photos/seed/' . rawurlencode($topicName) . '/600/400';
+    }
 }
