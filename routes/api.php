@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CommentController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\TopicController;
@@ -12,4 +13,6 @@ Route::prefix('v1')->group(function (): void {
     Route::get('collections/{collectionUuid}/explore', [ImageController::class, 'explore']);
     Route::get('collections/{collectionUuid}/comments', [CommentController::class, 'comments']);
     Route::get('collections/search', [ImageController::class, 'search']);
+
+    Route::post('auth/sign-in', [AuthController::class, 'signIn']);
 });
