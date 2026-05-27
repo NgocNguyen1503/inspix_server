@@ -8,18 +8,19 @@ use App\Http\Controllers\TopicController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
-    // Public routes
     Route::get('topics', [TopicController::class, 'topics']);
 
     Route::get('collections/random', [ImageController::class, 'random']);
-    Route::get('collections/{collectionUuid}/explore', [ImageController::class, 'explore']);
-    Route::get('collections/{collectionUuid}/comments', [CommentController::class, 'comments']);
     Route::get('collections/search', [ImageController::class, 'search']);
 
-    Route::post('auth/sign-in', [AuthController::class, 'signIn']);
-
     Route::middleware('auth:sanctum')->group(function (): void {
+        Route::get('collections/liked', [LikeController::class, 'likedCollections']);
         Route::post('collections/{collectionUuid}/comments', [CommentController::class, 'store']);
         Route::post('collections/{collectionUuid}/like', [LikeController::class, 'toggle']);
     });
+
+    Route::get('collections/{collectionUuid}/explore', [ImageController::class, 'explore']);
+    Route::get('collections/{collectionUuid}/comments', [CommentController::class, 'comments']);
+
+    Route::post('auth/sign-in', [AuthController::class, 'signIn']);
 });

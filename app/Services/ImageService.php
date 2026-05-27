@@ -782,7 +782,7 @@ class ImageService
      * @param list<string> $collectionUuids
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function getCollectionsByUuids(array $collectionUuids): Collection
+    public function getCollectionsByUuids(array $collectionUuids): Collection
     {
         if (count($collectionUuids) === 0) {
             return collect();
@@ -868,6 +868,169 @@ class ImageService
             ];
         })->filter()->values();
     }
+
+    public function getUnsplashCollectionsByUuids(array $collectionUuids): Collection
+    {
+        if (count($collectionUuids) === 0) {
+            return collect();
+        }
+
+        return collect($collectionUuids)
+            ->map(fn(string $collectionUuid) => $this->getUnsplashCollectionByUuid($collectionUuid))
+            ->filter()
+            ->values();
+    }
+
+    private function getUnsplashCollectionByUuid(string $collectionUuid): ?array
+    {
+        $accessKey = (string) config('services.unsplash.access_key');
+        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+
+        if ($accessKey === '') {
+            return null;
+        }
+
+        $headers = [
+            'Authorization' => 'Client-ID ' . $accessKey,
+        ];
+
+        $response = Http::retry(2, 500, null, false)
+            ->timeout(20)
+            ->acceptJson()
+            ->withHeaders($headers)
+            ->get($apiUrl . '/collections/' . $collectionUuid);
+
+        if ($response->successful() && is_array($response->json())) {
+            $collection = $response->json();
+            return $this->buildUnsplashCollectionItem($collection);
+        }
+
+        $response = Http::retry(2, 500, null, false)
+            ->timeout(20)
+            ->acceptJson()
+            ->withHeaders($headers)
+            ->get($apiUrl . '/photos/' . $collectionUuid);
+
+        if ($response->successful() && is_array($response->json())) {
+            $photo = $response->json();
+            return $this->buildUnsplashPhotoItem($photo);
+        }
+
+        return null;
+    }
+
+    private function buildUnsplashPhotoItem(array $photo): ?array
+    {
+        $photoUuid = $this->nullableString($photo['id'] ?? null);
+        if ($photoUuid === null) {
+            return null;
+        }
+
+        $images = collect([
+            [
+                'uuid' => $photoUuid,
+                'color' => $photo['color'] ?? null,
+                'width' => isset($photo['width']) ? (int) $photo['width'] : null,
+                'height' => isset($photo['height']) ? (int) $photo['height'] : null,
+                'url_small' => $this->nullableString(($photo['urls'] ?? [])['small'] ?? null),
+                'url_regular' => $this->nullableString(($photo['urls'] ?? [])['regular'] ?? null),
+                'url_full' => $this->nullableString(($photo['urls'] ?? [])['full'] ?? null),
+                'download_url' => $this->nullableString(($photo['links'] ?? [])['download_location'] ?? ($photo['links'] ?? [])['download'] ?? ($photo['urls'] ?? [])['full'] ?? null),
+            ]
+        ]);
+
+        $user = $photo['user'] ?? [];
+        $userProfileImage = $user['profile_image'] ?? [];
+
+        return [
+            'uuid' => $photoUuid,
+            'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
+            'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
+            'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : 0,
+            'total_comments' => 0,
+            'is_liked' => true,
+            'images' => $images,
+            'author' => [
+                'uuid' => $this->nullableString($user['id'] ?? null),
+                'name' => $this->nullableString($user['name'] ?? null),
+                'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
+                'bio' => $this->nullableString($user['bio'] ?? null),
+                'is_followed' => false,
+            ],
+            'topic' => [
+                'id' => null,
+                'name' => null,
+            ],
+            'created_at' => $this->nullableString($photo['created_at'] ?? null),
+            'created_at_human' => $this->humanizeDateTime($photo['created_at'] ?? null),
+            'updated_at' => $this->nullableString($photo['updated_at'] ?? null),
+            'updated_at_human' => $this->humanizeDateTime($photo['updated_at'] ?? null),
+            'latest_comment' => null,
+        ];
+    }
+
+
+    private function buildUnsplashCollectionItem(array $collection): ?array
+    {
+        $collectionUuid = $this->nullableString($collection['id'] ?? null);
+        if ($collectionUuid === null) {
+            return null;
+        }
+
+        $images = collect();
+        $coverPhoto = null;
+
+        if (isset($collection['cover_photo']) && is_array($collection['cover_photo'])) {
+            $coverPhoto = $collection['cover_photo'];
+        } elseif (isset($collection['preview_photos'][0]) && is_array($collection['preview_photos'][0])) {
+            $coverPhoto = $collection['preview_photos'][0];
+        }
+
+        if ($coverPhoto !== null) {
+            $images = collect([$coverPhoto])->map(function (array $photo): array {
+                return [
+                    'uuid' => $this->nullableString($photo['id'] ?? null),
+                    'color' => $photo['color'] ?? null,
+                    'width' => isset($photo['width']) ? (int) $photo['width'] : null,
+                    'height' => isset($photo['height']) ? (int) $photo['height'] : null,
+                    'url_small' => $this->nullableString(($photo['urls'] ?? [])['small'] ?? null),
+                    'url_regular' => $this->nullableString(($photo['urls'] ?? [])['regular'] ?? null),
+                    'url_full' => $this->nullableString(($photo['urls'] ?? [])['full'] ?? null),
+                    'download_url' => $this->nullableString(($photo['links'] ?? [])['download_location'] ?? ($photo['links'] ?? [])['download'] ?? ($photo['urls'] ?? [])['full'] ?? null),
+                ];
+            })->values();
+        }
+
+        $user = $collection['user'] ?? [];
+        $userProfileImage = $user['profile_image'] ?? [];
+
+        return [
+            'uuid' => $collectionUuid,
+            'title' => $this->nullableString($collection['title'] ?? null),
+            'description' => $this->nullableString($collection['description'] ?? null),
+            'total_likes' => isset($collection['total_photos']) ? (int) $collection['total_photos'] : 0,
+            'total_comments' => 0,
+            'is_liked' => true,
+            'images' => $images,
+            'author' => [
+                'uuid' => $this->nullableString($user['id'] ?? null),
+                'name' => $this->nullableString($user['name'] ?? null),
+                'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
+                'bio' => $this->nullableString($user['bio'] ?? null),
+                'is_followed' => false,
+            ],
+            'topic' => [
+                'id' => null,
+                'name' => null,
+            ],
+            'created_at' => $this->nullableString($collection['published_at'] ?? $collection['created_at'] ?? null),
+            'created_at_human' => $this->humanizeDateTime($collection['published_at'] ?? $collection['created_at'] ?? null),
+            'updated_at' => $this->nullableString($collection['updated_at'] ?? null),
+            'updated_at_human' => $this->humanizeDateTime($collection['updated_at'] ?? null),
+            'latest_comment' => null,
+        ];
+    }
+
 
     /**
      * @return array{r: int, g: int, b: int}|null

@@ -7,9 +7,10 @@ use Illuminate\Support\Facades\DB;
 
 class LikeService
 {
-    /**
-     * Toggle like for a user on a collection.
-     */
+    public function __construct(private readonly ImageService $imageService)
+    {
+    }
+
     public function toggleLike(string $userUuid, string $collectionUuid): array
     {
         return DB::transaction(function () use ($userUuid, $collectionUuid) {
@@ -48,5 +49,58 @@ class LikeService
 
             return ['created' => true, 'total_likes' => $totalLikes];
         });
+    }
+
+    public function getLikedCollections(string $userUuid, int $limit = 12, int $offset = 0): array
+    {
+        $likedCollectionUuids = DB::table('likes')
+            ->where('user_uuid', $userUuid)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->pluck('collection_uuid')
+            ->map(fn($uuid) => is_string($uuid) ? $uuid : (string) $uuid)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $total = count($likedCollectionUuids);
+        $pageUuids = array_slice($likedCollectionUuids, $offset, $limit);
+
+        if (count($pageUuids) === 0) {
+            return [
+                'items' => collect(),
+                'total' => $total,
+            ];
+        }
+
+        $serverUuids = DB::table('collections')
+            ->whereIn('uuid', $pageUuids)
+            ->pluck('uuid')
+            ->map(fn($uuid) => is_string($uuid) ? $uuid : (string) $uuid)
+            ->filter()
+            ->values()
+            ->all();
+
+        $serverItems = $this->imageService->getCollectionsByUuids($serverUuids)
+            ->map(function (array $item): array {
+                $item['is_liked'] = true;
+
+                return $item;
+            })
+            ->keyBy('uuid');
+
+        $unsplashUuids = array_values(array_diff($pageUuids, $serverUuids));
+        $unsplashItems = $this->imageService->getUnsplashCollectionsByUuids($unsplashUuids)->keyBy('uuid');
+
+        $items = collect($pageUuids)
+            ->map(fn(string $uuid) => $serverItems->get($uuid) ?? $unsplashItems->get($uuid))
+            ->filter()
+            ->values();
+
+        return [
+            'items' => $items,
+            'total' => $total,
+        ];
     }
 }
