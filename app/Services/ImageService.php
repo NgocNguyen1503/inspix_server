@@ -1191,17 +1191,9 @@ class ImageService
 
     public function getCollectionCommentsByUuid(string $collectionUuid): ?Collection
     {
-        $exists = DB::table('collections')
-            ->where('uuid', $collectionUuid)
-            ->exists();
-
-        if ($exists) {
-            return $this->getCommentsByCollection([$collectionUuid])
-                ->get($collectionUuid, collect())
-                ->values();
-        }
-
-        return collect();
+        return $this->getCommentsByCollection([$collectionUuid])
+            ->get($collectionUuid, collect())
+            ->values();
     }
 
     /**
