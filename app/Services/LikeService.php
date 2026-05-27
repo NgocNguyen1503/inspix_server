@@ -82,12 +82,7 @@ class LikeService
             ->values()
             ->all();
 
-        $serverItems = $this->imageService->getCollectionsByUuids($serverUuids)
-            ->map(function (array $item): array {
-                $item['is_liked'] = true;
-
-                return $item;
-            })
+        $serverItems = $this->imageService->getCollectionsByUuids($serverUuids, $userUuid)
             ->keyBy('uuid');
 
         $unsplashUuids = array_values(array_diff($pageUuids, $serverUuids));

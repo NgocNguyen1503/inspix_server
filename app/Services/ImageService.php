@@ -260,38 +260,54 @@ class ImageService
             $rows = [$rows];
         }
 
-        return collect($rows)->map(function (array $photo): array {
+        return collect($rows)->map(function (array $photo) use ($userUuid): array {
             $rawId = $this->nullableString($photo['id'] ?? null);
-            $createdAt = $this->nullableString($photo['created_at'] ?? null);
-            $updatedAt = $this->nullableString($photo['updated_at'] ?? null);
+
+            $isLiked = false;
+            if ($userUuid !== null && $rawId !== null) {
+                $isLiked = DB::table('likes')
+                    ->where('user_uuid', $userUuid)
+                    ->where('collection_uuid', $rawId)
+                    ->exists();
+            }
 
             $collections = $photo['collections'] ?? [];
             if (is_array($collections) && count($collections) > 0) {
                 $firstCollection = $collections[0];
+                $collectionUuid = $this->nullableString($firstCollection['id'] ?? null);
+
+                $collectionIsLiked = false;
+                if ($userUuid !== null && $collectionUuid !== null) {
+                    $collectionIsLiked = DB::table('likes')
+                        ->where('user_uuid', $userUuid)
+                        ->where('collection_uuid', $collectionUuid)
+                        ->exists();
+                }
+
                 return [
-                    'uuid' => $this->nullableString($firstCollection['id'] ?? null),
+                    'uuid' => $collectionUuid,
                     'title' => $this->nullableString($firstCollection['title'] ?? null),
                     'description' => $this->nullableString($firstCollection['description'] ?? null),
                     'total_likes' => isset($firstCollection['total_likes']) ? (int) $firstCollection['total_likes'] : 0,
                     'total_comments' => 0,
-                    'is_liked' => false,
+                    'is_liked' => $collectionIsLiked,
                     'images' => [
                         [
                             'uuid' => $rawId,
                             'color' => $photo['color'] ?? null,
                             'width' => isset($photo['width']) ? (int) $photo['width'] : null,
                             'height' => isset($photo['height']) ? (int) $photo['height'] : null,
-                            'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
-                            'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
-                            'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
-                            'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
+                            'url_small' => $this->nullableString(($photo['urls'] ?? [])['small'] ?? null),
+                            'url_regular' => $this->nullableString(($photo['urls'] ?? [])['regular'] ?? null),
+                            'url_full' => $this->nullableString(($photo['urls'] ?? [])['full'] ?? null),
+                            'download_url' => $this->nullableString(($photo['links'] ?? [])['download_location'] ?? ($photo['links'] ?? [])['download'] ?? ($photo['urls'] ?? [])['full'] ?? null),
                         ]
                     ],
                     'author' => [
-                        'uuid' => $this->nullableString($photo['user']['id'] ?? null),
-                        'name' => $this->nullableString($photo['user']['name'] ?? null),
-                        'avatar_url' => $this->resolveAvatarUrl($photo['user']['profile_image']['medium'] ?? null),
-                        'bio' => $this->nullableString($photo['user']['bio'] ?? null),
+                        'uuid' => $this->nullableString(($photo['user'] ?? [])['id'] ?? null),
+                        'name' => $this->nullableString(($photo['user'] ?? [])['name'] ?? null),
+                        'avatar_url' => $this->resolveAvatarUrl((($photo['user'] ?? [])['profile_image'] ?? [])['medium'] ?? null),
+                        'bio' => $this->nullableString(($photo['user'] ?? [])['bio'] ?? null),
                         'is_followed' => false,
                     ],
                     'topic' => [
@@ -306,30 +322,35 @@ class ImageService
                 ];
             }
 
+            $createdAt = $this->nullableString($photo['created_at'] ?? null);
+            $updatedAt = $this->nullableString($photo['updated_at'] ?? null);
+            $user = $photo['user'] ?? [];
+            $userProfileImage = $user['profile_image'] ?? [];
+
             return [
                 'uuid' => $rawId,
                 'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
                 'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
                 'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
                 'total_comments' => 0,
-                'is_liked' => false,
+                'is_liked' => $isLiked,
                 'images' => [
                     [
                         'uuid' => $rawId,
                         'color' => $photo['color'] ?? null,
                         'width' => isset($photo['width']) ? (int) $photo['width'] : null,
                         'height' => isset($photo['height']) ? (int) $photo['height'] : null,
-                        'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
-                        'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
-                        'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
-                        'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
+                        'url_small' => $this->nullableString(($photo['urls'] ?? [])['small'] ?? null),
+                        'url_regular' => $this->nullableString(($photo['urls'] ?? [])['regular'] ?? null),
+                        'url_full' => $this->nullableString(($photo['urls'] ?? [])['full'] ?? null),
+                        'download_url' => $this->nullableString(($photo['links'] ?? [])['download_location'] ?? ($photo['links'] ?? [])['download'] ?? ($photo['urls'] ?? [])['full'] ?? null),
                     ]
                 ],
                 'author' => [
-                    'uuid' => $this->nullableString($photo['user']['id'] ?? null),
-                    'name' => $this->nullableString($photo['user']['name'] ?? null),
-                    'avatar_url' => $this->resolveAvatarUrl($photo['user']['profile_image']['medium'] ?? null),
-                    'bio' => $this->nullableString($photo['user']['bio'] ?? null),
+                    'uuid' => $this->nullableString($user['id'] ?? null),
+                    'name' => $this->nullableString($user['name'] ?? null),
+                    'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
+                    'bio' => $this->nullableString($user['bio'] ?? null),
                     'is_followed' => false,
                 ],
                 'topic' => [
@@ -348,7 +369,7 @@ class ImageService
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>|null
      */
-    public function getExploreByCollection(string $collectionUuid, int $limit = 12, int $offset = 0): ?Collection
+    public function getExploreByCollection(string $collectionUuid, int $limit = 12, int $offset = 0, ?string $userUuid = null): ?Collection
     {
         $collection = DB::table('collections')
             ->where('uuid', $collectionUuid)
@@ -358,13 +379,13 @@ class ImageService
             $unsplashCollectionImages = $this->getUnsplashCollectionSourceImages($collectionUuid);
 
             if ($unsplashCollectionImages !== null) {
-                return $this->buildExploreFromSourceImages($unsplashCollectionImages, $collectionUuid, null, $limit, $offset);
+                return $this->buildExploreFromSourceImages($unsplashCollectionImages, $collectionUuid, null, $limit, $offset, $userUuid);
             }
 
             $unsplashPhotoSource = $this->getUnsplashPhotoSourceImage($collectionUuid);
 
             if ($unsplashPhotoSource !== null) {
-                return $this->buildExploreFromSourceImages(collect([$unsplashPhotoSource]), $collectionUuid, null, $limit, $offset);
+                return $this->buildExploreFromSourceImages(collect([$unsplashPhotoSource]), $collectionUuid, null, $limit, $offset, $userUuid);
             }
 
             return null;
@@ -377,13 +398,13 @@ class ImageService
             ->where('collection_uuid', $collectionUuid)
             ->get();
 
-        return $this->buildExploreFromSourceImages($sourceImages, $collectionUuid, $topicId, $limit, $offset);
+        return $this->buildExploreFromSourceImages($sourceImages, $collectionUuid, $topicId, $limit, $offset, $userUuid);
     }
 
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function buildExploreFromSourceImages(Collection $sourceImages, string $excludeCollectionUuid, ?int $topicId, int $limit, int $offset): Collection
+    private function buildExploreFromSourceImages(Collection $sourceImages, string $excludeCollectionUuid, ?int $topicId, int $limit, int $offset, ?string $userUuid = null): Collection
     {
         if ($sourceImages->isEmpty()) {
             return collect();
@@ -402,7 +423,7 @@ class ImageService
             }
 
             $dbItems = $this->getExploreFromDb($imageUuid, $excludeCollectionUuid, $topicId, $sourceColor, $perImage);
-            $unsplashItems = $this->getExploreFromUnsplash($topicId, $sourceColor, $perImage);
+            $unsplashItems = $this->getExploreFromUnsplash($topicId, $sourceColor, $perImage, $userUuid);
 
             $collected = $collected->concat($dbItems)->concat($unsplashItems);
         }
@@ -464,7 +485,7 @@ class ImageService
             return $collected->unique('uuid')->shuffle()->slice($offset, $limit)->values();
         }
 
-        $items = $this->getCollectionsByUuids($pageUuids->all());
+        $items = $this->getCollectionsByUuids($pageUuids->all(), $userUuid);
 
         if ($items->count() < $limit) {
             $remaining = $limit - $items->count();
@@ -591,7 +612,7 @@ class ImageService
     /**
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function getExploreFromUnsplash(?int $topicId, ?string $sourceColor, int $limit): Collection
+    private function getExploreFromUnsplash(?int $topicId, ?string $sourceColor, int $limit, ?string $userUuid = null): Collection
     {
         $accessKey = (string) config('services.unsplash.access_key');
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -650,10 +671,21 @@ class ImageService
             $rows = [$rows];
         }
 
-        return collect($rows)->map(function (array $photo): array {
+        return collect($rows)->map(function (array $photo) use ($userUuid): array {
             $rawId = $this->nullableString($photo['id'] ?? null);
             $createdAt = $this->nullableString($photo['created_at'] ?? null);
             $updatedAt = $this->nullableString($photo['updated_at'] ?? null);
+
+            $isLiked = false;
+            if ($userUuid !== null && $rawId !== null) {
+                $isLiked = DB::table('likes')
+                    ->where('user_uuid', $userUuid)
+                    ->where('collection_uuid', $rawId)
+                    ->exists();
+            }
+
+            $user = $photo['user'] ?? [];
+            $userProfileImage = $user['profile_image'] ?? [];
 
             return [
                 'uuid' => $rawId,
@@ -661,24 +693,24 @@ class ImageService
                 'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
                 'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
                 'total_comments' => null,
-                'is_liked' => false,
+                'is_liked' => $isLiked,
                 'images' => [
                     [
                         'uuid' => $rawId,
                         'color' => $photo['color'] ?? null,
                         'width' => isset($photo['width']) ? (int) $photo['width'] : null,
                         'height' => isset($photo['height']) ? (int) $photo['height'] : null,
-                        'url_small' => $this->nullableString($photo['urls']['small'] ?? null),
-                        'url_regular' => $this->nullableString($photo['urls']['regular'] ?? null),
-                        'url_full' => $this->nullableString($photo['urls']['full'] ?? null),
-                        'download_url' => $this->nullableString($photo['links']['download_location'] ?? $photo['links']['download'] ?? $photo['urls']['full'] ?? null),
+                        'url_small' => $this->nullableString(($photo['urls'] ?? [])['small'] ?? null),
+                        'url_regular' => $this->nullableString(($photo['urls'] ?? [])['regular'] ?? null),
+                        'url_full' => $this->nullableString(($photo['urls'] ?? [])['full'] ?? null),
+                        'download_url' => $this->nullableString(($photo['links'] ?? [])['download_location'] ?? ($photo['links'] ?? [])['download'] ?? ($photo['urls'] ?? [])['full'] ?? null),
                     ]
                 ],
                 'author' => [
-                    'uuid' => $this->nullableString($photo['user']['id'] ?? null),
-                    'name' => $this->nullableString($photo['user']['name'] ?? null),
-                    'avatar_url' => $this->nullableString($photo['user']['profile_image']['medium'] ?? null),
-                    'bio' => $this->nullableString($photo['user']['bio'] ?? null),
+                    'uuid' => $this->nullableString($user['id'] ?? null),
+                    'name' => $this->nullableString($user['name'] ?? null),
+                    'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
+                    'bio' => $this->nullableString($user['bio'] ?? null),
                     'is_followed' => false,
                 ],
                 'topic' => [
@@ -782,7 +814,7 @@ class ImageService
      * @param list<string> $collectionUuids
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    public function getCollectionsByUuids(array $collectionUuids): Collection
+    public function getCollectionsByUuids(array $collectionUuids, ?string $userUuid = null): Collection
     {
         if (count($collectionUuids) === 0) {
             return collect();
@@ -823,7 +855,20 @@ class ImageService
             ->get()
             ->groupBy('collection_uuid');
 
-        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection): ?array {
+        $likedCollectionUuids = $userUuid !== null
+            ? DB::table('likes')
+                ->where('user_uuid', $userUuid)
+                ->pluck('collection_uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all()
+            : [];
+
+        $likedCollectionMap = collect($likedCollectionUuids)->flip();
+
+        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection, $likedCollectionMap): ?array {
             $row = $rowsMap->get($uuid);
             if ($row === null) {
                 return null;
@@ -848,7 +893,7 @@ class ImageService
                 'description' => $this->nullableString($row->description),
                 'total_likes' => (int) $row->total_likes,
                 'total_comments' => (int) ($row->total_comments ?? 0),
-                'is_liked' => false,
+                'is_liked' => $likedCollectionMap->has($uuid),
                 'images' => $collectionImages,
                 'author' => [
                     'uuid' => $this->nullableString($row->author_uuid),
@@ -869,19 +914,19 @@ class ImageService
         })->filter()->values();
     }
 
-    public function getUnsplashCollectionsByUuids(array $collectionUuids): Collection
+    public function getUnsplashCollectionsByUuids(array $collectionUuids, ?string $userUuid = null): Collection
     {
         if (count($collectionUuids) === 0) {
             return collect();
         }
 
         return collect($collectionUuids)
-            ->map(fn(string $collectionUuid) => $this->getUnsplashCollectionByUuid($collectionUuid))
+            ->map(fn(string $collectionUuid) => $this->getUnsplashCollectionByUuid($collectionUuid, $userUuid))
             ->filter()
             ->values();
     }
 
-    private function getUnsplashCollectionByUuid(string $collectionUuid): ?array
+    private function getUnsplashCollectionByUuid(string $collectionUuid, ?string $userUuid = null): ?array
     {
         $accessKey = (string) config('services.unsplash.access_key');
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -919,11 +964,19 @@ class ImageService
         return null;
     }
 
-    private function buildUnsplashPhotoItem(array $photo): ?array
+    private function buildUnsplashPhotoItem(array $photo, ?string $userUuid = null): ?array
     {
         $photoUuid = $this->nullableString($photo['id'] ?? null);
         if ($photoUuid === null) {
             return null;
+        }
+
+        $isLiked = false;
+        if ($userUuid !== null) {
+            $isLiked = DB::table('likes')
+                ->where('user_uuid', $userUuid)
+                ->where('collection_uuid', $photoUuid)
+                ->exists();
         }
 
         $images = collect([
@@ -948,7 +1001,7 @@ class ImageService
             'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
             'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : 0,
             'total_comments' => 0,
-            'is_liked' => true,
+            'is_liked' => $isLiked,
             'images' => $images,
             'author' => [
                 'uuid' => $this->nullableString($user['id'] ?? null),
@@ -970,11 +1023,19 @@ class ImageService
     }
 
 
-    private function buildUnsplashCollectionItem(array $collection): ?array
+    private function buildUnsplashCollectionItem(array $collection, ?string $userUuid = null): ?array
     {
         $collectionUuid = $this->nullableString($collection['id'] ?? null);
         if ($collectionUuid === null) {
             return null;
+        }
+
+        $isLiked = false;
+        if ($userUuid !== null) {
+            $isLiked = DB::table('likes')
+                ->where('user_uuid', $userUuid)
+                ->where('collection_uuid', $collectionUuid)
+                ->exists();
         }
 
         $images = collect();
@@ -1010,7 +1071,7 @@ class ImageService
             'description' => $this->nullableString($collection['description'] ?? null),
             'total_likes' => isset($collection['total_photos']) ? (int) $collection['total_photos'] : 0,
             'total_comments' => 0,
-            'is_liked' => true,
+            'is_liked' => $isLiked,
             'images' => $images,
             'author' => [
                 'uuid' => $this->nullableString($user['id'] ?? null),
@@ -1502,7 +1563,7 @@ class ImageService
         if ($collections->count() < $limit) {
             $remaining = $limit - $collections->count();
 
-            $photos = $this->searchUnsplashPhotos($searchKey, $remaining, $offset);
+            $photos = $this->searchUnsplashPhotos($searchKey, $remaining, $offset, $userUuid);
         }
 
         return [
@@ -1521,7 +1582,7 @@ class ImageService
      * Search photos on Unsplash and map to item shape.
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function searchUnsplashPhotos(string $queryText, int $limit, int $offset = 0): Collection
+    private function searchUnsplashPhotos(string $queryText, int $limit, int $offset = 0, ?string $userUuid = null): Collection
     {
         $accessKey = (string) config('services.unsplash.access_key');
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -1553,9 +1614,17 @@ class ImageService
 
         $rows = $json['results'];
 
-        return collect($rows)->map(function (array $photo): array {
+        return collect($rows)->map(function (array $photo) use ($userUuid): array {
             $rawId = $this->nullableString($photo['id'] ?? null);
             $createdAt = $this->nullableString($photo['created_at'] ?? null);
+
+            $isLiked = false;
+            if ($userUuid !== null && $rawId !== null) {
+                $isLiked = DB::table('likes')
+                    ->where('user_uuid', $userUuid)
+                    ->where('collection_uuid', $rawId)
+                    ->exists();
+            }
 
             return [
                 'uuid' => $rawId,
@@ -1563,7 +1632,7 @@ class ImageService
                 'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
                 'total_likes' => isset($photo['likes']) ? (int) $photo['likes'] : null,
                 'total_comments' => null,
-                'is_liked' => false,
+                'is_liked' => $isLiked,
                 'images' => [
                     [
                         'uuid' => $rawId,

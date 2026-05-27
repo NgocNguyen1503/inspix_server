@@ -7,6 +7,7 @@ use App\Services\ImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
 
 class ImageController extends Controller
 {
@@ -32,7 +33,7 @@ class ImageController extends Controller
         $offset = (int) ($validated['offset'] ?? 0);
         $topicId = isset($validated['topic_id']) ? (int) $validated['topic_id'] : null;
 
-        $userUuid = $request->user()?->getAuthIdentifier();
+        $userUuid = Auth::guard('sanctum')->user()?->getAuthIdentifier();
         if ($userUuid === null && isset($validated['user_uuid'])) {
             $userUuid = (string) $validated['user_uuid'];
         }
@@ -70,16 +71,23 @@ class ImageController extends Controller
         $validator = Validator::make($request->all(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'offset' => ['sometimes', 'integer', 'min:0'],
+            'user_uuid' => ['sometimes', 'uuid'],
         ]);
 
         if ($validator->fails()) {
             return ApiResponse::unprocessableContent($validator->errors()->toArray(), 'Validation failed.');
         }
 
-        $limit = (int) ($validator->validated()['limit'] ?? 12);
-        $offset = (int) ($validator->validated()['offset'] ?? 0);
+        $validated = $validator->validated();
+        $limit = (int) ($validated['limit'] ?? 12);
+        $offset = (int) ($validated['offset'] ?? 0);
 
-        $items = $this->imageService->getExploreByCollection($collectionUuid, $limit, $offset);
+        $userUuid = Auth::guard('sanctum')->user()?->getAuthIdentifier();
+        if ($userUuid === null && isset($validated['user_uuid'])) {
+            $userUuid = (string) $validated['user_uuid'];
+        }
+
+        $items = $this->imageService->getExploreByCollection($collectionUuid, $limit, $offset, $userUuid);
 
         if ($items === null) {
             return ApiResponse::dataNotfound(['collection_uuid' => ['Collection not found.']], 'Collection not found.');
@@ -98,6 +106,7 @@ class ImageController extends Controller
             'searchKey' => ['required', 'string', 'min:1'],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:60'],
             'offset' => ['sometimes', 'integer', 'min:0'],
+            'user_uuid' => ['sometimes', 'uuid'],
         ]);
 
         if ($validator->fails()) {
@@ -109,7 +118,10 @@ class ImageController extends Controller
         $limit = (int) ($validated['limit'] ?? 12);
         $offset = (int) ($validated['offset'] ?? 0);
 
-        $userUuid = $request->user()?->getAuthIdentifier();
+        $userUuid = Auth::guard('sanctum')->user()?->getAuthIdentifier();
+        if ($userUuid === null && isset($validated['user_uuid'])) {
+            $userUuid = (string) $validated['user_uuid'];
+        }
 
         $result = $this->imageService->searchCollections($searchKey, $limit, $offset, $userUuid);
 
