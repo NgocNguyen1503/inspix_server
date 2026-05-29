@@ -126,19 +126,13 @@ class ImageController extends Controller
         $result = $this->imageService->searchCollections($searchKey, $limit, $offset, $userUuid);
 
         return ApiResponse::success(
-            [
-                'artists' => $result['artists'],
-                'collections' => $result['collections'],
-                'photos' => $result['photos'],
-            ],
+            $result['collections'],
             'Search results fetched successfully.',
             [
                 'limit' => $limit,
                 'offset' => $offset,
                 'counts' => [
-                    'artists' => $result['totals']['artists'] ?? 0,
                     'collections' => $result['totals']['collections'] ?? 0,
-                    'photos' => $result['totals']['photos'] ?? 0,
                 ],
             ]
         );

@@ -1447,8 +1447,6 @@ class ImageService
 
         $totalCollections = (int) $totalQuery->distinct('c.uuid')->count('c.uuid');
 
-        // artists total
-        $artistsTotal = (int) DB::table('users')->where('name', 'like', $like)->count();
 
         $rowsQuery = DB::table('collections as c')
             ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
@@ -1539,24 +1537,6 @@ class ImageService
             })->values();
         }
 
-        // artists
-        $artistRows = DB::table('users')
-            ->select(['uuid', 'name', 'avatar_url', 'bio'])
-            ->where('name', 'like', $like)
-            ->orderByDesc('created_at')
-            ->orderByDesc('uuid')
-            ->offset($offset)
-            ->limit($limit)
-            ->get();
-
-        $artists = $artistRows->map(function (object $row): array {
-            return [
-                'uuid' => $this->nullableString($row->uuid),
-                'name' => $this->nullableString($row->name),
-                'avatar_url' => $this->nullableString($row->avatar_url),
-                'bio' => $this->nullableString($row->bio),
-            ];
-        })->values();
 
         // photos from unsplash to fill
         $photos = collect();
@@ -1566,14 +1546,34 @@ class ImageService
             $photos = $this->searchUnsplashPhotos($searchKey, $remaining, $offset, $userUuid);
         }
 
+        // Merge collections and photos into a single collections list.
+        $merged = $collections->concat($photos)->values()->map(function ($item) {
+            $images = $item['images'] ?? [];
+            $count = 0;
+            if (is_array($images) || $images instanceof \Countable) {
+                $count = is_array($images) ? count($images) : $images->count();
+            }
+
+            if ($count === 1) {
+                $singleUuid = null;
+                if (is_array($images)) {
+                    $singleUuid = $images[0]['uuid'] ?? null;
+                } elseif ($images instanceof \Illuminate\Support\Collection) {
+                    $singleUuid = $images->first()['uuid'] ?? null;
+                }
+
+                if ($singleUuid !== null) {
+                    $item['uuid'] = $singleUuid;
+                }
+            }
+
+            return $item;
+        })->values();
+
         return [
-            'artists' => $artists,
-            'collections' => $collections->take($limit)->values(),
-            'photos' => $photos->take($limit)->values(),
+            'collections' => $merged->take($limit)->values(),
             'totals' => [
                 'collections' => $totalCollections,
-                'artists' => $artistsTotal,
-                'photos' => isset($json) && is_array($json) && isset($json['total']) ? (int) $json['total'] : 0,
             ],
         ];
     }
