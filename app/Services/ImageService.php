@@ -382,11 +382,12 @@ class ImageService
                 return $this->buildExploreFromSourceImages($unsplashCollectionImages, $collectionUuid, null, $limit, $offset, $userUuid);
             }
 
-            $unsplashPhotoSource = $this->getUnsplashPhotoSourceImage($collectionUuid);
+            $fallbackImage = (object) [
+                'uuid' => $collectionUuid,
+                'color' => null,
+            ];
 
-            if ($unsplashPhotoSource !== null) {
-                return $this->buildExploreFromSourceImages(collect([$unsplashPhotoSource]), $collectionUuid, null, $limit, $offset, $userUuid);
-            }
+            return $this->buildExploreFromSourceImages(collect([$fallbackImage]), $collectionUuid, null, $limit, $offset, $userUuid);
 
             return null;
         }
@@ -771,43 +772,6 @@ class ImageService
             })
             ->filter()
             ->values();
-    }
-
-    private function getUnsplashPhotoSourceImage(string $photoId): ?object
-    {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return null;
-        }
-
-        $response = Http::retry(2, 500, null, false)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders([
-                'Authorization' => 'Client-ID ' . $accessKey,
-            ])
-            ->get($apiUrl . '/photos/' . $photoId);
-
-        if ($response->failed()) {
-            return null;
-        }
-
-        $photo = $response->json();
-        if (!is_array($photo)) {
-            return null;
-        }
-
-        $uuid = $this->nullableString($photo['id'] ?? null);
-        if ($uuid === null) {
-            return null;
-        }
-
-        return (object) [
-            'uuid' => $uuid,
-            'color' => $photo['color'] ?? null,
-        ];
     }
 
     /**
@@ -1746,32 +1710,6 @@ class ImageService
         $topicName = $this->nullableString(DB::table('topics')->where('id', $topicId)->value('name'));
         if ($topicName === null) {
             return null;
-        }
-
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey !== '') {
-            try {
-                $response = Http::retry(2, 500)
-                    ->timeout(20)
-                    ->acceptJson()
-                    ->withHeaders([
-                        'Authorization' => 'Client-ID ' . $accessKey,
-                    ])
-                    ->get($apiUrl . '/photos/random', [
-                        'query' => $topicName,
-                        'count' => 1,
-                    ]);
-
-                if ($response->successful()) {
-                    $photo = $response->json();
-                    if (is_array($photo) && isset($photo['urls']['regular'])) {
-                        return $this->nullableString($photo['urls']['regular']);
-                    }
-                }
-            } catch (\Exception $e) {
-            }
         }
 
         return 'https://picsum.photos/seed/' . rawurlencode($topicName) . '/600/400';
