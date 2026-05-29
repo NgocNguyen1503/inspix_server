@@ -269,7 +269,7 @@ class AppDemoSeeder extends Seeder
 
         $commentRows = [];
         foreach ($collectionUuids as $collectionUuid) {
-            $baseCommentCount = random_int(1, 3);
+            $baseCommentCount = random_int(8, 12);
             $createdCommentIds = [];
 
             for ($i = 0; $i < $baseCommentCount; $i++) {
@@ -310,6 +310,49 @@ class AppDemoSeeder extends Seeder
 
             if (count($replyRows) > 0) {
                 DB::table('comments')->insert($replyRows);
+            }
+        }
+
+        // Seed comments for some Unsplash photos
+        $unsplashKey = config('services.unsplash.access_key');
+        $unsplashApi = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+        if (!empty($unsplashKey)) {
+            try {
+                $resp = Http::retry(2, 500)
+                    ->timeout(20)
+                    ->acceptJson()
+                    ->withHeaders(['Authorization' => 'Client-ID ' . $unsplashKey])
+                    ->get($unsplashApi . '/photos', ['per_page' => 10, 'page' => 1]);
+
+                if ($resp->successful()) {
+                    $photos = $resp->json();
+                    if (is_array($photos) && count($photos) > 0) {
+                        $unsplashCommentRows = [];
+                        foreach ($photos as $photo) {
+                            $photoId = isset($photo['id']) ? (string) $photo['id'] : null;
+                            if ($photoId === null) {
+                                continue;
+                            }
+
+                            $countRoot = random_int(8, 12);
+                            for ($r = 0; $r < $countRoot; $r++) {
+                                $unsplashCommentRows[] = [
+                                    'user_uuid' => $userUuids[array_rand($userUuids)],
+                                    'collection_uuid' => $photoId,
+                                    'parent_id' => null,
+                                    'context' => $commentPool[array_rand($commentPool)],
+                                    'created_at' => $now,
+                                    'updated_at' => $now,
+                                ];
+                            }
+                        }
+
+                        if (count($unsplashCommentRows) > 0) {
+                            DB::table('comments')->insert($unsplashCommentRows);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
             }
         }
 
