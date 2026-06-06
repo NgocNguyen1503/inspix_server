@@ -17,6 +17,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('collections/liked', [LikeController::class, 'likedCollections']);
         Route::post('collections/{collectionUuid}/comments', [CommentController::class, 'store']);
         Route::post('collections/{collectionUuid}/like', [LikeController::class, 'toggle']);
+
+        Route::get('logout', [AuthController::class, 'logout']);
     });
 
     Route::get('collections/{collectionUuid}/explore', [ImageController::class, 'explore']);
