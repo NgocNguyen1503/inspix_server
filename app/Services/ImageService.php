@@ -1714,4 +1714,25 @@ class ImageService
 
         return 'https://picsum.photos/seed/' . rawurlencode($topicName) . '/600/400';
     }
+
+    public static function getUserCollections(?string $userUuid, ?string $viewerUuid = null): Collection
+    {
+        if ($userUuid === null) {
+            return collect();
+        }
+
+        $collectionUuids = DB::table('collections')
+            ->where('user_uuid', $userUuid)
+            ->orderByDesc('created_at')
+            ->pluck('uuid')
+            ->map(fn($uuid) => (string) $uuid)
+            ->values()
+            ->all();
+
+        if (count($collectionUuids) === 0) {
+            return collect();
+        }
+
+        return app(self::class)->getCollectionsByUuids($collectionUuids, $viewerUuid);
+    }
 }

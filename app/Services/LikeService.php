@@ -51,7 +51,7 @@ class LikeService
         });
     }
 
-    public function getLikedCollections(string $userUuid, int $limit = 12, int $offset = 0): array
+    public function getLikedCollections(string $userUuid, ?int $limit = 12, ?int $offset = 0): array
     {
         $likedCollectionUuids = DB::table('likes')
             ->where('user_uuid', $userUuid)

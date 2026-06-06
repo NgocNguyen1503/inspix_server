@@ -5,6 +5,7 @@ use App\Http\Controllers\CommentController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\LikeController;
 use App\Http\Controllers\TopicController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -17,6 +18,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('collections/liked', [LikeController::class, 'likedCollections']);
         Route::post('collections/{collectionUuid}/comments', [CommentController::class, 'store']);
         Route::post('collections/{collectionUuid}/like', [LikeController::class, 'toggle']);
+
+        Route::get('profile', [UserController::class, 'profile']);
 
         Route::get('logout', [AuthController::class, 'logout']);
     });
