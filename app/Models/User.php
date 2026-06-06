@@ -29,6 +29,7 @@ class User extends Authenticatable
         'email',
         'password',
         'bio',
+        'email_verified_at',
         'avatar_url',
         'total_collections',
         'total_likes',

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Helpers\ApiResponse;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -22,6 +23,12 @@ class AuthController extends Controller
         ], [
             'password' => $params['password'],
             'name' => explode('@', $params['email'])[0],
+            'avatar_url' => '/uploads/avatars/avatar-default.jpg',
+            'bio' => 'null',
+            'email_verified_at' => Carbon::now(),
+            'total_collections' => 0,
+            'total_likes' => 0,
+            'total_images' => 0
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
