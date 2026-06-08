@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CommentController;
+use App\Http\Controllers\FollowController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\LikeController;
 use App\Http\Controllers\TopicController;
@@ -21,7 +22,12 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('profile', [UserController::class, 'profile']);
 
-        Route::get('logout', [AuthController::class, 'logout']);
+        // TODO
+        Route::get('follow/{artistUuid}', [FollowController::class, 'toggle']);
+        Route::get('follow/collections', [FollowController::class, 'followCollections']);
+        // end TODO
+
+        Route::get('auth/logout', [AuthController::class, 'logout']);
     });
 
     Route::get('collections/{collectionUuid}/explore', [ImageController::class, 'explore']);
