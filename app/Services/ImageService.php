@@ -1438,6 +1438,7 @@ class ImageService
                 })->values();
 
                 return [
+                    '_source' => 'db',
                     'uuid' => $this->nullableString($row->uuid),
                     'title' => $this->nullableString($row->title),
                     'description' => $this->nullableString($row->description),
@@ -1475,25 +1476,15 @@ class ImageService
 
         // Merge collections and photos into a single collections list.
         $merged = $collections->concat($photos)->values()->map(function ($item) {
-            $images = $item['images'] ?? [];
-            $count = 0;
-            if (is_array($images) || $images instanceof \Countable) {
-                $count = is_array($images) ? count($images) : $images->count();
-            }
-
-            if ($count === 1) {
-                $singleUuid = null;
-                if (is_array($images)) {
-                    $singleUuid = $images[0]['uuid'] ?? null;
-                } elseif ($images instanceof \Illuminate\Support\Collection) {
-                    $singleUuid = $images->first()['uuid'] ?? null;
-                }
-
+            if (($item['_source'] ?? null) === 'unsplash') {
+                $images = $item['images'] ?? [];
+                $singleUuid = is_array($images) ? ($images[0]['uuid'] ?? null) : null;
                 if ($singleUuid !== null) {
                     $item['uuid'] = $singleUuid;
                 }
             }
 
+            unset($item['_source']);
             return $item;
         })->values();
 
@@ -1542,6 +1533,7 @@ class ImageService
             }
 
             return [
+                '_source' => 'unsplash',
                 'uuid' => $rawId,
                 'title' => $this->nullableString($photo['alt_description'] ?? $photo['description'] ?? null),
                 'description' => $this->nullableString($photo['description'] ?? $photo['alt_description'] ?? null),
