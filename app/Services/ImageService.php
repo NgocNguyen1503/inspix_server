@@ -220,6 +220,7 @@ class ImageService
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
+                    'username' => null,
                     'is_followed' => $userUuid !== null ? $followedAuthorMap->has((string) $row->author_uuid) : false,
                     'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                     'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
@@ -406,6 +407,7 @@ class ImageService
                     'name' => $this->nullableString($user['name'] ?? null),
                     'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                     'bio' => $this->nullableString($user['bio'] ?? null),
+                    'username' => $this->nullableString($user['username'] ?? null),
                     'is_followed' => false,
                     'followers' => 0,
                     'following' => 0,
@@ -648,6 +650,7 @@ class ImageService
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
+                    'username' => $this->nullableString($row->author_username),
                     'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                     'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
@@ -760,6 +763,7 @@ class ImageService
                     'name' => $this->nullableString($user['name'] ?? null),
                     'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                     'bio' => $this->nullableString($user['bio'] ?? null),
+                    'username' => $this->nullableString($user['username'] ?? null),
                     'is_followed' => false,
                     'followers' => 0,
                     'following' => 0,
@@ -903,6 +907,7 @@ class ImageService
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
+                    'username' => null,
                     'is_followed' => false,
                     'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                     'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
@@ -992,6 +997,7 @@ class ImageService
                 'name' => $this->nullableString($user['name'] ?? null),
                 'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                 'bio' => $this->nullableString($user['bio'] ?? null),
+                'username' => $this->nullableString($user['username'] ?? null),
                 'is_followed' => false,
                 'followers' => 0,
                 'following' => 0,
@@ -1063,6 +1069,7 @@ class ImageService
                 'name' => $this->nullableString($user['name'] ?? null),
                 'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                 'bio' => $this->nullableString($user['bio'] ?? null),
+                'username' => $this->nullableString($user['username'] ?? null),
                 'is_followed' => false,
                 'followers' => 0,
                 'following' => 0,
@@ -1504,6 +1511,7 @@ class ImageService
                         'name' => $this->nullableString($row->author_name),
                         'avatar_url' => $this->nullableString($row->author_avatar_url),
                         'bio' => $this->nullableString($row->author_bio),
+                        'username' => null,
                         'is_followed' => false,
                         'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                         'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
@@ -1644,6 +1652,7 @@ class ImageService
                 'u.name as author_name',
                 'u.avatar_url as author_avatar_url',
                 'u.bio as author_bio',
+                'u.username as author_username',
                 'c.uuid as collection_uuid',
                 'c.title as collection_title',
                 'c.description as collection_description',
@@ -1678,6 +1687,7 @@ class ImageService
                 'name' => $this->nullableString($row->author_name),
                 'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                 'bio' => $this->nullableString($row->author_bio),
+                'username' => $this->nullableString($row->author_username),
                 'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                 'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
             ],
@@ -1733,5 +1743,79 @@ class ImageService
         }
 
         return app(self::class)->getCollectionsByUuids($collectionUuids, $viewerUuid);
+    }
+
+    public function getAuthorCollections(string $authorUuid, int $limit = 12, int $offset = 0, ?string $viewerUuid = null): array
+    {
+        $user = DB::table('users')->where('uuid', $authorUuid)->first();
+
+        if ($user !== null) {
+            $collectionUuids = DB::table('collections')
+                ->where('user_uuid', $authorUuid)
+                ->orderByDesc('created_at')
+                ->offset($offset)
+                ->limit($limit)
+                ->pluck('uuid')
+                ->map(fn($uuid) => (string) $uuid)
+                ->values()
+                ->all();
+
+            $total = DB::table('collections')->where('user_uuid', $authorUuid)->count();
+
+            return [
+                'items' => $this->getCollectionsByUuids($collectionUuids, $viewerUuid),
+                'total' => $total,
+            ];
+        }
+
+        $photosResponse = $this->callUnsplash('/search/photos', ['query' => $authorUuid, 'per_page' => 1]);
+        if ($photosResponse === null || !$photosResponse->successful()) {
+            return ['items' => collect(), 'total' => 0];
+        }
+
+        $username = null;
+        foreach ($photosResponse->json()['results'] ?? [] as $photo) {
+            if (($photo['user']['id'] ?? null) === $authorUuid) {
+                $username = $photo['user']['username'] ?? null;
+                break;
+            }
+        }
+
+        if ($username === null) {
+            $collectionsResponse = $this->callUnsplash('/search/collections', ['query' => $authorUuid, 'per_page' => 1]);
+            if ($collectionsResponse !== null && $collectionsResponse->successful()) {
+                foreach ($collectionsResponse->json()['results'] ?? [] as $collection) {
+                    if (($collection['user']['id'] ?? null) === $authorUuid) {
+                        $username = $collection['user']['username'] ?? null;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($username === null) {
+            return ['items' => collect(), 'total' => 0];
+        }
+
+        $response = $this->callUnsplash('/users/' . $username . '/collections', [
+            'per_page' => min($limit, 30),
+            'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
+        ]);
+
+        if ($response === null || !$response->successful()) {
+            return ['items' => collect(), 'total' => 0];
+        }
+
+        $rows = $response->json();
+        if (!is_array($rows)) {
+            return ['items' => collect(), 'total' => 0];
+        }
+
+        $items = collect($rows)->map(fn(array $collection) => $this->buildUnsplashCollectionItem($collection))->filter()->values();
+
+        return [
+            'items' => $items,
+            'total' => $items->count(),
+        ];
     }
 }
