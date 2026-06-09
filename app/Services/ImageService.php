@@ -1745,7 +1745,7 @@ class ImageService
         return app(self::class)->getCollectionsByUuids($collectionUuids, $viewerUuid);
     }
 
-    public function getAuthorCollections(string $authorUuid, int $limit = 12, int $offset = 0, ?string $viewerUuid = null): array
+    public function getAuthorCollections(string $authorUuid, ?int $limit = 12, ?int $offset = 0, ?string $viewerUuid = null): array
     {
         $user = DB::table('users')->where('uuid', $authorUuid)->first();
 
@@ -1766,6 +1766,19 @@ class ImageService
                 'items' => $this->getCollectionsByUuids($collectionUuids, $viewerUuid),
                 'total' => $total,
             ];
+        }
+
+        $response = $this->callUnsplash('/users/' . $authorUuid . '/collections', [
+            'per_page' => min($limit, 30),
+            'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
+        ]);
+
+        if ($response !== null && $response->successful() && is_array($response->json()) && count($response->json()) > 0) {
+            $items = collect($response->json())->map(fn(array $collection) => $this->buildUnsplashCollectionItem($collection))->filter()->values();
+
+            if ($items->isNotEmpty()) {
+                return ['items' => $items, 'total' => $items->count()];
+            }
         }
 
         $photosResponse = $this->callUnsplash('/search/photos', ['query' => $authorUuid, 'per_page' => 1]);
