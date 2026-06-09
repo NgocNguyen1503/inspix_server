@@ -23,7 +23,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('profile', [UserController::class, 'profile']);
 
         // TODO
-        Route::get('follow/{artistUuid}', [FollowController::class, 'toggle']);
+        Route::get('follow/{authorUuid}', [FollowController::class, 'toggle']);
         Route::get('follow/collections', [FollowController::class, 'followCollections']);
         // end TODO
 
