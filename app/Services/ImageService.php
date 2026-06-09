@@ -650,7 +650,7 @@ class ImageService
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
-                    'username' => $this->nullableString($row->author_username),
+                    'username' => null,
                     'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                     'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
@@ -872,10 +872,23 @@ class ImageService
 
         $likedCollectionMap = collect($likedCollectionUuids)->flip();
 
+        $followedAuthorUuids = $userUuid !== null
+            ? DB::table('followers')
+                ->where('user_uuid', $userUuid)
+                ->pluck('author_uuid')
+                ->map(fn($uuid) => $this->nullableString($uuid))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all()
+            : [];
+
+        $followedAuthorMap = collect($followedAuthorUuids)->flip();
+
         $authorUuids = $rows->pluck('author_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all();
         $followCounts = $this->getFollowCountsBatch($authorUuids);
 
-        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection, $likedCollectionMap, $followCounts): ?array {
+        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection, $likedCollectionMap, $followedAuthorMap, $followCounts, $userUuid): ?array {
             $row = $rowsMap->get($uuid);
             if ($row === null) {
                 return null;
@@ -908,7 +921,7 @@ class ImageService
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                     'username' => null,
-                    'is_followed' => false,
+                    'is_followed' => $userUuid !== null ? $followedAuthorMap->has((string) $row->author_uuid) : false,
                     'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
                     'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
