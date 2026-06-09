@@ -14,6 +14,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::get('collections/random', [ImageController::class, 'random']);
     Route::get('collections/search', [ImageController::class, 'search']);
+    Route::get('{authorUuid}/collections', [UserController::class, 'authorCollections']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('collections/liked', [LikeController::class, 'likedCollections']);

@@ -15,6 +15,7 @@ class ImageService
     public function __construct(private readonly UnsplashKeyManager $keyManager)
     {
     }
+
     private function callUnsplash(string $endpoint, array $params = []): ?\Illuminate\Http\Client\Response
     {
         $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
@@ -35,9 +36,44 @@ class ImageService
 
             return $response;
         }
+
         // all key exhausted
         return null;
     }
+
+    /**
+     * @param list<string> $authorUuids
+     * @return array<string, array{followers: int, following: int}>
+     */
+    private function getFollowCountsBatch(array $authorUuids): array
+    {
+        if (count($authorUuids) === 0) {
+            return [];
+        }
+
+        $followers = DB::table('followers')
+            ->whereIn('author_uuid', $authorUuids)
+            ->selectRaw('author_uuid, COUNT(*) as count')
+            ->groupBy('author_uuid')
+            ->pluck('count', 'author_uuid');
+
+        $following = DB::table('followers')
+            ->whereIn('user_uuid', $authorUuids)
+            ->selectRaw('user_uuid, COUNT(*) as count')
+            ->groupBy('user_uuid')
+            ->pluck('count', 'user_uuid');
+
+        $result = [];
+        foreach ($authorUuids as $uuid) {
+            $result[$uuid] = [
+                'followers' => (int) ($followers[$uuid] ?? 0),
+                'following' => (int) ($following[$uuid] ?? 0),
+            ];
+        }
+
+        return $result;
+    }
+
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
@@ -154,7 +190,10 @@ class ImageService
         $likedCollectionMap = collect($likedCollectionUuids)->flip();
         $followedAuthorMap = collect($followedAuthorUuids)->flip();
 
-        $items = $rows->map(function (object $row) use ($imagesByCollection, $userUuid, $likedCollectionMap, $followedAuthorMap, $latestCommentsByCollection): array {
+        $authorUuids = $rows->pluck('author_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all();
+        $followCounts = $this->getFollowCountsBatch($authorUuids);
+
+        $items = $rows->map(function (object $row) use ($imagesByCollection, $userUuid, $likedCollectionMap, $followedAuthorMap, $latestCommentsByCollection, $followCounts): array {
             $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
                 return [
                     'uuid' => $this->nullableString($image->uuid),
@@ -182,6 +221,8 @@ class ImageService
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                     'is_followed' => $userUuid !== null ? $followedAuthorMap->has((string) $row->author_uuid) : false,
+                    'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
+                    'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
                 'topic' => [
                     'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
@@ -321,6 +362,8 @@ class ImageService
                         'avatar_url' => $this->resolveAvatarUrl((($photo['user'] ?? [])['profile_image'] ?? [])['medium'] ?? null),
                         'bio' => $this->nullableString(($photo['user'] ?? [])['bio'] ?? null),
                         'is_followed' => false,
+                        'followers' => 0,
+                        'following' => 0,
                     ],
                     'topic' => [
                         'id' => null,
@@ -364,6 +407,8 @@ class ImageService
                     'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                     'bio' => $this->nullableString($user['bio'] ?? null),
                     'is_followed' => false,
+                    'followers' => 0,
+                    'following' => 0,
                 ],
                 'topic' => [
                     'id' => null,
@@ -585,7 +630,10 @@ class ImageService
 
         $rows = $rows->take($limit)->values();
 
-        return $rows->map(function (object $row): array {
+        $authorUuids = $rows->pluck('author_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all();
+        $followCounts = $this->getFollowCountsBatch($authorUuids);
+
+        return $rows->map(function (object $row) use ($followCounts): array {
             return [
                 'uuid' => $this->nullableString($row->uuid),
                 'color' => $row->color,
@@ -600,6 +648,8 @@ class ImageService
                     'name' => $this->nullableString($row->author_name),
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
+                    'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
+                    'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
                 'collection' => [
                     'uuid' => $this->nullableString($row->collection_uuid),
@@ -711,6 +761,8 @@ class ImageService
                     'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                     'bio' => $this->nullableString($user['bio'] ?? null),
                     'is_followed' => false,
+                    'followers' => 0,
+                    'following' => 0,
                 ],
                 'topic' => [
                     'id' => null,
@@ -816,7 +868,10 @@ class ImageService
 
         $likedCollectionMap = collect($likedCollectionUuids)->flip();
 
-        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection, $likedCollectionMap): ?array {
+        $authorUuids = $rows->pluck('author_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all();
+        $followCounts = $this->getFollowCountsBatch($authorUuids);
+
+        return collect($collectionUuids)->map(function (string $uuid) use ($rowsMap, $imagesByCollection, $likedCollectionMap, $followCounts): ?array {
             $row = $rowsMap->get($uuid);
             if ($row === null) {
                 return null;
@@ -849,6 +904,8 @@ class ImageService
                     'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                     'bio' => $this->nullableString($row->author_bio),
                     'is_followed' => false,
+                    'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
+                    'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                 ],
                 'topic' => [
                     'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
@@ -936,6 +993,8 @@ class ImageService
                 'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                 'bio' => $this->nullableString($user['bio'] ?? null),
                 'is_followed' => false,
+                'followers' => 0,
+                'following' => 0,
             ],
             'topic' => [
                 'id' => null,
@@ -948,7 +1007,6 @@ class ImageService
             'latest_comment' => null,
         ];
     }
-
 
     private function buildUnsplashCollectionItem(array $collection, ?string $userUuid = null): ?array
     {
@@ -1006,6 +1064,8 @@ class ImageService
                 'avatar_url' => $this->resolveAvatarUrl($userProfileImage['medium'] ?? null),
                 'bio' => $this->nullableString($user['bio'] ?? null),
                 'is_followed' => false,
+                'followers' => 0,
+                'following' => 0,
             ],
             'topic' => [
                 'id' => null,
@@ -1018,7 +1078,6 @@ class ImageService
             'latest_comment' => null,
         ];
     }
-
 
     /**
      * @return array{r: int, g: int, b: int}|null
@@ -1153,30 +1212,25 @@ class ImageService
             return null;
         }
 
-        // Check if it's an absolute URL (from external service)
         if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
             return $url;
         }
 
-        // Check if local file exists with the specified path
         $localPath = public_path(ltrim($url, '/'));
         if (file_exists($localPath)) {
             return $url;
         }
 
-        // Try to find any available avatar on the server as fallback
         $avatarDir = public_path('uploads/avatars');
         if (file_exists($avatarDir)) {
             $files = array_diff(scandir($avatarDir), ['.', '..']);
             $files = array_values($files);
             if (count($files) > 0) {
-                // Use a consistent fallback based on URL hash to ensure same user gets same avatar
                 $index = abs(crc32($url)) % count($files);
                 return '/uploads/avatars/' . $files[$index];
             }
         }
 
-        // Last resort: external fallback using Picsum Photos
         $seed = basename($url, '.jpg');
         return 'https://picsum.photos/seed/' . rawurlencode($seed) . '/300/300.jpg';
     }
@@ -1279,7 +1333,6 @@ class ImageService
     }
 
     /**
-     * Get the latest comment for each collection
      * @param list<string> $collectionUuids
      * @return \Illuminate\Support\Collection<string, array<string, mixed>|null>
      */
@@ -1331,7 +1384,6 @@ class ImageService
                 ];
             });
 
-        // Ensure all collection UUIDs have an entry in the result (null if no comment)
         $result = collect();
         foreach ($collectionUuids as $uuid) {
             $result[$uuid] = $comments->get($uuid, null);
@@ -1348,7 +1400,6 @@ class ImageService
     }
 
     /**
-     * Search collections/photos by a free text key across collections title/description, topic name, author name, and unsplash.
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
     public function searchCollections(string $searchKey, int $limit = 12, int $offset = 0, ?string $userUuid = null): array
@@ -1373,7 +1424,6 @@ class ImageService
             });
 
         $totalCollections = (int) $totalQuery->distinct('c.uuid')->count('c.uuid');
-
 
         $rowsQuery = DB::table('collections as c')
             ->join('users as u', 'u.uuid', '=', 'c.user_uuid')
@@ -1423,7 +1473,10 @@ class ImageService
 
             $likedCollectionMap = collect($likedCollectionUuids)->flip();
 
-            $collections = $rowsQuery->map(function (object $row) use ($imagesByCollection, $likedCollectionMap) {
+            $authorUuids = $rowsQuery->pluck('author_uuid')->map(fn($uuid) => $this->nullableString($uuid))->filter()->unique()->values()->all();
+            $followCounts = $this->getFollowCountsBatch($authorUuids);
+
+            $collections = $rowsQuery->map(function (object $row) use ($imagesByCollection, $likedCollectionMap, $followCounts) {
                 $collectionImages = $imagesByCollection->get($row->uuid, collect())->map(function (object $image): array {
                     return [
                         'uuid' => $this->nullableString($image->uuid),
@@ -1452,6 +1505,8 @@ class ImageService
                         'avatar_url' => $this->nullableString($row->author_avatar_url),
                         'bio' => $this->nullableString($row->author_bio),
                         'is_followed' => false,
+                        'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
+                        'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
                     ],
                     'topic' => [
                         'id' => $row->topic_id !== null ? (int) $row->topic_id : null,
@@ -1465,16 +1520,12 @@ class ImageService
             })->values();
         }
 
-
-        // photos from unsplash to fill
         $photos = collect();
         if ($collections->count() < $limit) {
             $remaining = $limit - $collections->count();
-
             $photos = $this->searchUnsplashPhotos($searchKey, $remaining, $offset, $userUuid);
         }
 
-        // Merge collections and photos into a single collections list.
         $merged = $collections->concat($photos)->values()->map(function ($item) {
             if (($item['_source'] ?? null) === 'unsplash') {
                 $images = $item['images'] ?? [];
@@ -1497,7 +1548,6 @@ class ImageService
     }
 
     /**
-     * Search photos on Unsplash and map to item shape.
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
     private function searchUnsplashPhotos(string $queryText, int $limit, int $offset = 0, ?string $userUuid = null): Collection
@@ -1558,6 +1608,8 @@ class ImageService
                     'avatar_url' => $this->nullableString($photo['user']['profile_image']['medium'] ?? null),
                     'bio' => $this->nullableString($photo['user']['bio'] ?? null),
                     'is_followed' => false,
+                    'followers' => 0,
+                    'following' => 0,
                 ],
                 'topic' => [
                     'id' => null,
@@ -1609,6 +1661,8 @@ class ImageService
             return null;
         }
 
+        $followCounts = $this->getFollowCountsBatch([$row->author_uuid]);
+
         return [
             'uuid' => $this->nullableString($row->uuid),
             'color' => $row->color,
@@ -1624,6 +1678,8 @@ class ImageService
                 'name' => $this->nullableString($row->author_name),
                 'avatar_url' => $this->resolveAvatarUrl($row->author_avatar_url),
                 'bio' => $this->nullableString($row->author_bio),
+                'followers' => $followCounts[(string) $row->author_uuid]['followers'] ?? 0,
+                'following' => $followCounts[(string) $row->author_uuid]['following'] ?? 0,
             ],
             'collection' => [
                 'uuid' => $this->nullableString($row->collection_uuid),

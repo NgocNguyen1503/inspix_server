@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
+use App\Models\User;
 use App\Services\ImageService;
 use App\Services\LikeService;
 use Illuminate\Http\Request;

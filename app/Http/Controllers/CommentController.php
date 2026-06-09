@@ -48,8 +48,6 @@ class CommentController extends Controller
             return ApiResponse::internalServerError(null, 'Failed to create comment.');
         }
 
-        return ApiResponse::success([
-            'comment' => $comment,
-        ], 'Comment created successfully.');
+        return ApiResponse::success($comment, 'Comment created successfully.');
     }
 }
