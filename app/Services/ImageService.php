@@ -12,6 +12,32 @@ use Illuminate\Support\Facades\Http;
 
 class ImageService
 {
+    public function __construct(private readonly UnsplashKeyManager $keyManager)
+    {
+    }
+    private function callUnsplash(string $endpoint, array $params = []): ?\Illuminate\Http\Client\Response
+    {
+        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
+
+        // Try each available key
+        while (($key = $this->keyManager->getAvailableKey()) !== null) {
+            $response = Http::retry(1, 300)
+                ->timeout(20)
+                ->acceptJson()
+                ->withHeaders(['Authorization' => 'Client-ID ' . $key])
+                ->get($apiUrl . $endpoint, $params);
+
+            // 429 Too Many Requests or 403 Forbidden = out of quota
+            if (in_array($response->status(), [403, 429], true)) {
+                $this->keyManager->markExhausted($key);
+                continue;
+            }
+
+            return $response;
+        }
+        // all key exhausted
+        return null;
+    }
     /**
      * @return array{items: \Illuminate\Support\Collection<int, array<string, mixed>>, total: int}
      */
@@ -217,13 +243,6 @@ class ImageService
      */
     private function getUnsplashCollectionFeed(int $limit, ?string $userUuid, ?int $topicId = null): Collection
     {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return collect();
-        }
-
         $params = [
             'count' => min($limit, 30),
         ];
@@ -239,15 +258,8 @@ class ImageService
             $params['query'] = $queryText;
         }
 
-        $response = Http::retry(2, 500)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders([
-                'Authorization' => 'Client-ID ' . $accessKey,
-            ])
-            ->get($apiUrl . '/photos/random', $params);
-
-        if ($response->failed()) {
+        $response = $this->callUnsplash('/photos/random', $params);
+        if ($response === null || $response->failed()) {
             return collect();
         }
 
@@ -615,13 +627,6 @@ class ImageService
      */
     private function getExploreFromUnsplash(?int $topicId, ?string $sourceColor, int $limit, ?string $userUuid = null): Collection
     {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return collect();
-        }
-
         $queryParts = [];
 
         if ($topicId !== null) {
@@ -651,15 +656,8 @@ class ImageService
             }
         }
 
-        $response = Http::retry(2, 500)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders([
-                'Authorization' => 'Client-ID ' . $accessKey,
-            ])
-            ->get($apiUrl . '/photos/random', $params);
-
-        if ($response->failed()) {
+        $response = $this->callUnsplash('/photos/random', $params);
+        if ($response === null || $response->failed()) {
             return collect();
         }
 
@@ -731,25 +729,11 @@ class ImageService
      */
     private function getUnsplashCollectionSourceImages(string $collectionUuid): ?Collection
     {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return null;
-        }
-
-        $response = Http::retry(2, 500, null, false)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders([
-                'Authorization' => 'Client-ID ' . $accessKey,
-            ])
-            ->get($apiUrl . '/collections/' . $collectionUuid . '/photos', [
-                'per_page' => 30,
-                'page' => 1,
-            ]);
-
-        if ($response->failed()) {
+        $response = $this->callUnsplash('/collections/' . $collectionUuid . '/photos', [
+            'per_page' => 30,
+            'page' => 1,
+        ]);
+        if ($response === null || $response->failed()) {
             return null;
         }
 
@@ -892,35 +876,14 @@ class ImageService
 
     private function getUnsplashCollectionByUuid(string $collectionUuid, ?string $userUuid = null): ?array
     {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return null;
-        }
-
-        $headers = [
-            'Authorization' => 'Client-ID ' . $accessKey,
-        ];
-
-        $response = Http::retry(2, 500, null, false)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders($headers)
-            ->get($apiUrl . '/collections/' . $collectionUuid);
-
-        if ($response->successful() && is_array($response->json())) {
+        $response = $this->callUnsplash('/collections/' . $collectionUuid);
+        if ($response !== null && $response->successful() && is_array($response->json())) {
             $collection = $response->json();
             return $this->buildUnsplashCollectionItem($collection);
         }
 
-        $response = Http::retry(2, 500, null, false)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders($headers)
-            ->get($apiUrl . '/photos/' . $collectionUuid);
-
-        if ($response->successful() && is_array($response->json())) {
+        $response = $this->callUnsplash('/photos/' . $collectionUuid);
+        if ($response !== null && $response->successful() && is_array($response->json())) {
             $photo = $response->json();
             return $this->buildUnsplashPhotoItem($photo);
         }
@@ -1548,26 +1511,14 @@ class ImageService
      */
     private function searchUnsplashPhotos(string $queryText, int $limit, int $offset = 0, ?string $userUuid = null): Collection
     {
-        $accessKey = (string) config('services.unsplash.access_key');
-        $apiUrl = rtrim((string) config('services.unsplash.api_url', 'https://api.unsplash.com'), '/');
-
-        if ($accessKey === '') {
-            return collect();
-        }
-
         $params = [
             'query' => $queryText,
             'per_page' => min($limit, 30),
             'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
         ];
 
-        $response = Http::retry(2, 500)
-            ->timeout(20)
-            ->acceptJson()
-            ->withHeaders(['Authorization' => 'Client-ID ' . $accessKey])
-            ->get($apiUrl . '/search/photos', $params);
-
-        if ($response->failed()) {
+        $response = $this->callUnsplash('/search/photos', $params);
+        if ($response === null || $response->failed()) {
             return collect();
         }
 
