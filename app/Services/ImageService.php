@@ -45,7 +45,7 @@ class ImageService
      * @param list<string> $authorUuids
      * @return array<string, array{followers: int, following: int}>
      */
-    private function getFollowCountsBatch(array $authorUuids): array
+    public function getFollowCountsBatch(array $authorUuids): array
     {
         if (count($authorUuids) === 0) {
             return [];
@@ -954,13 +954,13 @@ class ImageService
         $response = $this->callUnsplash('/collections/' . $collectionUuid);
         if ($response !== null && $response->successful() && is_array($response->json())) {
             $collection = $response->json();
-            return $this->buildUnsplashCollectionItem($collection);
+            return $this->buildUnsplashCollectionItem($collection, $userUuid);
         }
 
         $response = $this->callUnsplash('/photos/' . $collectionUuid);
         if ($response !== null && $response->successful() && is_array($response->json())) {
             $photo = $response->json();
-            return $this->buildUnsplashPhotoItem($photo);
+            return $this->buildUnsplashPhotoItem($photo, $userUuid);
         }
 
         return null;
@@ -1896,5 +1896,15 @@ class ImageService
             'items' => $items,
             'total' => $total + $unsplashItems->count(),
         ];
+    }
+
+    public function callUnsplashForUser(string $username): ?array
+    {
+        $response = $this->callUnsplash('/users/' . $username);
+        if ($response !== null && $response->successful() && is_array($response->json()) && !isset($response->json()['errors'])) {
+            return $response->json();
+        }
+
+        return null;
     }
 }

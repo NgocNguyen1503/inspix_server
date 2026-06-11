@@ -3,34 +3,36 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
+use App\Models\Follower;
 use App\Models\User;
 use App\Services\ImageService;
 use App\Services\LikeService;
+use App\Services\UserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class UserController extends Controller
 {
     public function __construct(
         private readonly ImageService $imageService,
-        private readonly LikeService $likeService
+        private readonly LikeService $likeService,
+        private readonly UserService $userService
     ) {
     }
 
-    public function profile(Request $request)
+    public function profile(Request $request, string $userUuid)
     {
-        $params = $request->all();
-        $userId = Auth::id();
+        $viewerUuid = Auth::guard('sanctum')->check() ? Auth::guard('sanctum')->user()?->getAuthIdentifier() : null;
 
-        $collections = $this->imageService->getUserCollections($userId);
+        $profile = $this->userService->getProfile($userUuid, $viewerUuid);
 
-        $liked = $this->likeService->getLikedCollections($userId, $params['limit'] ?? null, $params['offset'] ?? null);
+        if ($profile === null) {
+            return ApiResponse::dataNotfound('User not found.');
+        }
 
-        return ApiResponse::success([
-            'owned' => $collections,
-            'liked' => $liked['items'],
-        ]);
+        return ApiResponse::success($profile);
     }
 
     public function authorCollections(Request $request, string $authorUuid)

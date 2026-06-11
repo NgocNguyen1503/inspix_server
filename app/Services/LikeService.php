@@ -86,7 +86,7 @@ class LikeService
             ->keyBy('uuid');
 
         $unsplashUuids = array_values(array_diff($pageUuids, $serverUuids));
-        $unsplashItems = $this->imageService->getUnsplashCollectionsByUuids($unsplashUuids)->keyBy('uuid');
+        $unsplashItems = $this->imageService->getUnsplashCollectionsByUuids($unsplashUuids, $userUuid)->keyBy('uuid');
 
         $items = collect($pageUuids)
             ->map(fn(string $uuid) => $serverItems->get($uuid) ?? $unsplashItems->get($uuid))

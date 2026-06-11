@@ -15,13 +15,12 @@ Route::prefix('v1')->group(function (): void {
     Route::get('collections/random', [ImageController::class, 'random']);
     Route::get('collections/search', [ImageController::class, 'search']);
     Route::get('user/{authorUuid}/collections', [UserController::class, 'authorCollections']);
+    Route::get('profile/{userUuid}', [UserController::class, 'profile']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('collections/liked', [LikeController::class, 'likedCollections']);
         Route::post('collections/{collectionUuid}/comments', [CommentController::class, 'store']);
         Route::post('collections/{collectionUuid}/like', [LikeController::class, 'toggle']);
-
-        Route::get('profile', [UserController::class, 'profile']);
 
         Route::get('follow/collections', [FollowController::class, 'followCollections']);
         Route::get('follow/{authorUuid}', [FollowController::class, 'toggle']);
