@@ -18,6 +18,7 @@ class Follower extends Model
     protected $fillable = [
         'user_uuid',
         'author_uuid',
+        'username',
     ];
 
     /**

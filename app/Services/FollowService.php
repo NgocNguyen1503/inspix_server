@@ -9,7 +9,7 @@ use function Illuminate\Support\now;
 
 class FollowService
 {
-    public function toggleFollow(string $userUuid, string $authorUuid): array
+    public function toggleFollow(string $userUuid, string $authorUuid, ?string $username): array
     {
         try {
             $follow = Follower::where('user_uuid', $userUuid)
@@ -20,6 +20,7 @@ class FollowService
                 Follower::insert([
                     'user_uuid' => $userUuid,
                     'author_uuid' => $authorUuid,
+                    'username' => $username ?? null,
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);

@@ -230,6 +230,7 @@ class AppDemoSeeder extends Seeder
             $followerRows[] = [
                 'user_uuid' => $userUuid,
                 'author_uuid' => $authorUuid,
+                'username' => null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];

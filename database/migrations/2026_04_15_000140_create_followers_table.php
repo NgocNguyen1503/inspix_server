@@ -14,6 +14,7 @@ return new class extends Migration {
             $table->id();
             $table->string('user_uuid', 255);
             $table->string('author_uuid', 255);
+            $table->string('username', 255)->nullable();
             $table->timestamps();
         });
     }
