@@ -1786,7 +1786,7 @@ class ImageService
         $searchResponse = $this->callUnsplash('/search/users', ['query' => $authorUuid, 'per_page' => 10]);
         if ($searchResponse !== null && $searchResponse->successful() && is_array($searchResponse->json())) {
             foreach ($searchResponse->json()['results'] ?? [] as $result) {
-                if (($result['id'] ?? null) === $authorUuid) {
+                if (($result['id'] ?? null) === $authorUuid || ($result['username'] ?? null) === $authorUuid) {
                     $username = $result['username'] ?? null;
                     break;
                 }
@@ -1794,29 +1794,16 @@ class ImageService
         }
 
         if ($username === null) {
-            $response = $this->callUnsplash('/users/' . $authorUuid . '/collections', [
-                'per_page' => min($limit, 30),
-                'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
-            ]);
-
-            if ($response !== null && $response->successful() && is_array($response->json()) && count($response->json()) > 0) {
-                $items = collect($response->json())->map(fn(array $collection) => $this->buildUnsplashCollectionItem($collection))->filter()->values();
-
-                if ($items->isNotEmpty()) {
-                    return ['items' => $items, 'total' => $items->count()];
-                }
-            }
-
-            return ['items' => collect(), 'total' => 0];
+            $username = $authorUuid;
         }
 
-        $response = $this->callUnsplash('/users/' . $username . '/collections', [
+        $collectionsResponse = $this->callUnsplash('/users/' . $username . '/collections', [
             'per_page' => min($limit, 30),
             'page' => max(1, (int) floor($offset / max(1, $limit)) + 1),
         ]);
 
-        if ($response !== null && $response->successful() && is_array($response->json()) && count($response->json()) > 0) {
-            $items = collect($response->json())->map(fn(array $collection) => $this->buildUnsplashCollectionItem($collection))->filter()->values();
+        if ($collectionsResponse !== null && $collectionsResponse->successful() && is_array($collectionsResponse->json()) && count($collectionsResponse->json()) > 0) {
+            $items = collect($collectionsResponse->json())->map(fn(array $collection) => $this->buildUnsplashCollectionItem($collection))->filter()->values();
 
             if ($items->isNotEmpty()) {
                 return ['items' => $items, 'total' => $items->count()];
@@ -1841,20 +1828,22 @@ class ImageService
 
     public function getFollowedAuthorCollections(string $userUuid, int $limit = 12, int $offset = 0): array
     {
-        $followedAuthorUuids = DB::table('followers')
+        $followedAuthors = DB::table('followers')
             ->where('user_uuid', $userUuid)
-            ->pluck('author_uuid')
-            ->map(fn($uuid) => $this->nullableString($uuid))
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
+            ->get(['author_uuid', 'username'])
+            ->map(fn($row) => [
+                'author_uuid' => $this->nullableString($row->author_uuid),
+                'username' => $this->nullableString($row->username),
+            ])
+            ->filter(fn($row) => $row['author_uuid'] !== null)
+            ->unique('author_uuid')
+            ->values();
 
-        \Log::info('followedAuthorUuids', $followedAuthorUuids);
-
-        if (count($followedAuthorUuids) === 0) {
+        if ($followedAuthors->isEmpty()) {
             return ['items' => collect(), 'total' => 0];
         }
+
+        $followedAuthorUuids = $followedAuthors->pluck('author_uuid')->all();
 
         $dbAuthorUuids = DB::table('users')
             ->whereIn('uuid', $followedAuthorUuids)
@@ -1862,17 +1851,7 @@ class ImageService
             ->values()
             ->all();
 
-        $unsplashAuthorUuids = collect($followedAuthorUuids)
-            ->diff($dbAuthorUuids)
-            ->values()
-            ->all();
-
-        \Log::info('unsplashAuthorUuids', $unsplashAuthorUuids);
-
-        foreach ($unsplashAuthorUuids as $authorUuid) {
-            $result = $this->getAuthorCollections($authorUuid, 3, 0, $userUuid);
-            \Log::info('result for ' . $authorUuid, ['count' => $result['items']->count()]);
-        }
+        $unsplashAuthors = $followedAuthors->filter(fn($row) => !in_array($row['author_uuid'], $dbAuthorUuids, true))->values();
 
         $total = DB::table('collections')
             ->whereIn('user_uuid', $dbAuthorUuids)
@@ -1893,12 +1872,13 @@ class ImageService
         $dbItems = $this->getCollectionsByUuids($collectionUuids, $userUuid);
 
         $unsplashItems = collect();
-        if (count($unsplashAuthorUuids) > 0 && $dbItems->count() < $limit) {
+        if ($unsplashAuthors->isNotEmpty() && $dbItems->count() < $limit) {
             $remaining = $limit - $dbItems->count();
-            $perAuthor = (int) ceil($remaining / count($unsplashAuthorUuids));
+            $perAuthor = (int) ceil($remaining / $unsplashAuthors->count());
 
-            foreach ($unsplashAuthorUuids as $authorUuid) {
-                $result = $this->getAuthorCollections($authorUuid, $perAuthor, 0, $userUuid);
+            foreach ($unsplashAuthors as $author) {
+                $identifier = $author['username'] ?? $author['author_uuid'];
+                $result = $this->getAuthorCollections($identifier, $perAuthor, 0, $userUuid);
                 $unsplashItems = $unsplashItems->concat($result['items']);
             }
 
