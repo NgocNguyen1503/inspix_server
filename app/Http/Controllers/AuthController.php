@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
 use App\Models\User;
+use App\Services\UserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -11,6 +12,10 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly UserService $userService
+    ) {
+    }
     public function signIn(Request $request)
     {
         $params = $request->validate([
@@ -32,6 +37,12 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
+
+        $user = $this->userService->getProfile($user->uuid, null);
+
+        if ($user === null) {
+            return ApiResponse::dataNotfound('User not found.');
+        }
 
         return ApiResponse::success([
             'token' => $token,
