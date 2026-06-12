@@ -24,11 +24,11 @@ class FollowService
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
-                return ['followed'];
+                return ['created' => true];
             }
 
             $follow->deleteOrFail();
-            return ['unfollowed'];
+            return ['created' => false];
         } catch (\Throwable $th) {
             throw new Exception($th->getMessage());
         }

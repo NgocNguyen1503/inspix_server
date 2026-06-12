@@ -27,7 +27,7 @@ class FollowController extends Controller
 
         $result = $this->followService->toggleFollow($user->uuid, $authorUuid, $params['username'] ?? null);
 
-        return ApiResponse::success($result);
+        return ApiResponse::success($result, $result['created'] == true ? 'followed' : 'unfollowed');
     }
 
     public function followCollections(Request $request)
