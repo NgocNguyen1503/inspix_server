@@ -1968,4 +1968,60 @@ class ImageService
             return $this->getCollectionsByUuids([$collectionId], $userUuid)->first();
         });
     }
+
+    /**
+     * @return true|false|null
+     */
+    public function deleteCollection(string $collectionUuid, string $userUuid): ?bool
+    {
+        $collection = \App\Models\Collection::where('uuid', $collectionUuid)->first();
+
+        if ($collection === null) {
+            return null;
+        }
+
+        if ((string) $collection->user_uuid !== $userUuid) {
+            return false;
+        }
+
+        return DB::transaction(function () use ($collection, $userUuid): bool {
+            $images = Image::where('collection_uuid', $collection->uuid)->get();
+
+            foreach ($images as $image) {
+                foreach (['url_small', 'url_regular', 'url_full'] as $field) {
+                    $url = $this->nullableString($image->{$field});
+                    if ($url === null) {
+                        continue;
+                    }
+
+                    if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+                        continue;
+                    }
+
+                    $filePath = public_path(ltrim($url, '/'));
+                    if (file_exists($filePath)) {
+                        @unlink($filePath);
+                    }
+
+                    break;
+                }
+            }
+
+            Image::where('collection_uuid', $collection->uuid)->delete();
+            DB::table('likes')->where('collection_uuid', $collection->uuid)->delete();
+            DB::table('comments')->where('collection_uuid', $collection->uuid)->delete();
+
+            DB::table('users')
+                ->where('uuid', $userUuid)
+                ->decrement('total_images', $images->count());
+
+            DB::table('users')
+                ->where('uuid', $userUuid)
+                ->decrement('total_collections');
+
+            $collection->delete();
+
+            return true;
+        });
+    }
 }

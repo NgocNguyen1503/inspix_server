@@ -185,4 +185,28 @@ class ImageController extends Controller
 
         return ApiResponse::success($collection, 'Collection uploaded successfully.');
     }
+
+    public function delete(string $collectionUuid): JsonResponse
+    {
+        $userUuid = Auth::guard('sanctum')->user()->getAuthIdentifier();
+
+        try {
+            $deleted = $this->imageService->deleteCollection($collectionUuid, $userUuid);
+        } catch (\Throwable $e) {
+            return ApiResponse::internalServerError(
+                ['exception' => $e->getMessage()],
+                'Failed to delete collection.'
+            );
+        }
+
+        if ($deleted === false) {
+            return ApiResponse::forbidden('You do not have permission to delete this collection.');
+        }
+
+        if ($deleted === null) {
+            return ApiResponse::dataNotfound(['collection_uuid' => ['Collection not found.']], 'Collection not found.');
+        }
+
+        return ApiResponse::success(null, 'Collection deleted successfully.');
+    }
 }

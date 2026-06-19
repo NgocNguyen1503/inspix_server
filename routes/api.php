@@ -22,6 +22,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('collections/{collectionUuid}/comments', [CommentController::class, 'store']);
         Route::post('collections/{collectionUuid}/like', [LikeController::class, 'toggle']);
         Route::post('collections/upload', [ImageController::class, 'upload']);
+        Route::post('collections/{collectionUuid}/delete', [ImageController::class, 'delete']);
 
         Route::get('follow/collections', [FollowController::class, 'followCollections']);
         Route::get('follow/{authorUuid}', [FollowController::class, 'toggle']);
