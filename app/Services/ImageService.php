@@ -1931,6 +1931,13 @@ class ImageService
             foreach ($imageFiles as $index => $file) {
                 [$width, $height] = @getimagesize($file->getRealPath()) ?: [null, null];
 
+                $exif = @exif_read_data($file->getRealPath());
+                $orientation = (int) ($exif['Orientation'] ?? 1);
+
+                if (in_array($orientation, [5, 6, 7, 8], true)) {
+                    [$width, $height] = [$height, $width];
+                }
+
                 $ext = $file->getClientOriginalExtension() ?: $file->extension();
                 $filename = "collection-{$collectionId}-image-" . ($index + 1) . ".{$ext}";
 
