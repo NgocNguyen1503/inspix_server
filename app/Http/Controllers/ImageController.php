@@ -137,4 +137,52 @@ class ImageController extends Controller
             ]
         );
     }
+
+    public function upload(Request $request): JsonResponse
+    {
+        $allFiles = $request->allFiles();
+        $files = [];
+
+        if (isset($allFiles['images']) && is_array($allFiles['images'])) {
+            $files = array_values($allFiles['images']);
+        } elseif ($request->file('images') !== null) {
+            $f = $request->file('images');
+            $files = is_array($f) ? array_values($f) : [$f];
+        }
+
+        $validator = Validator::make(
+            array_merge($request->all(), ['images' => $files]),
+            [
+                'title' => ['required', 'string', 'max:255'],
+                'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+                'topic_id' => ['sometimes', 'nullable', 'integer', 'exists:topics,id'],
+                'images' => ['required', 'array', 'min:1', 'max:20'],
+                'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,webp,gif', 'max:10240'],
+            ]
+        );
+
+        if ($validator->fails()) {
+            return ApiResponse::unprocessableContent($validator->errors()->toArray(), 'Validation failed.');
+        }
+
+        $validated = $validator->validated();
+        $userUuid = Auth::guard('sanctum')->user()->getAuthIdentifier();
+
+        try {
+            $collection = $this->imageService->uploadCollection(
+                userUuid: $userUuid,
+                title: $validated['title'],
+                description: $validated['description'] ?? null,
+                topicId: isset($validated['topic_id']) ? (int) $validated['topic_id'] : null,
+                imageFiles: $files,
+            );
+        } catch (\Throwable $e) {
+            return ApiResponse::internalServerError(
+                ['exception' => $e->getMessage()],
+                'Failed to upload collection.'
+            );
+        }
+
+        return ApiResponse::success($collection, 'Collection uploaded successfully.');
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Image;
 use Carbon\Carbon;
 /**
  * @method array searchCollections(string $searchKey, int $limit = 12, int $offset = 0, ?string $userUuid = null)
@@ -9,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class ImageService
 {
@@ -1906,5 +1908,64 @@ class ImageService
         }
 
         return null;
+    }
+
+    public function uploadCollection(
+        string $userUuid,
+        string $title,
+        ?string $description,
+        ?int $topicId,
+        array $imageFiles,
+    ): ?array {
+        return DB::transaction(function () use ($userUuid, $title, $description, $topicId, $imageFiles): ?array {
+            $collection = \App\Models\Collection::create([
+                'user_uuid' => $userUuid,
+                'title' => $title,
+                'description' => $description,
+                'topic_id' => $topicId,
+                'total_likes' => 0,
+            ]);
+
+            $collectionId = $collection->uuid;
+
+            foreach ($imageFiles as $index => $file) {
+                [$width, $height] = @getimagesize($file->getRealPath()) ?: [null, null];
+
+                $ext = $file->getClientOriginalExtension() ?: $file->extension();
+                $filename = "collection-{$collectionId}-image-" . ($index + 1) . ".{$ext}";
+
+                $destDir = public_path('uploads/images/regular');
+                if (!is_dir($destDir)) {
+                    mkdir($destDir, 0755, true);
+                }
+
+                $file->move($destDir, $filename);
+
+                $url = '/uploads/images/regular/' . $filename;
+
+                Image::create([
+                    'uuid' => (string) Str::uuid(),
+                    'user_uuid' => $userUuid,
+                    'collection_uuid' => $collectionId,
+                    'width' => $width,
+                    'height' => $height,
+                    'url_small' => $url,
+                    'url_regular' => $url,
+                    'url_full' => $url,
+                    'download_url' => $url,
+                    'color' => null,
+                ]);
+            }
+
+            DB::table('users')
+                ->where('uuid', $userUuid)
+                ->increment('total_images', count($imageFiles));
+
+            DB::table('users')
+                ->where('uuid', $userUuid)
+                ->increment('total_collections');
+
+            return $this->getCollectionsByUuids([$collectionId], $userUuid)->first();
+        });
     }
 }
